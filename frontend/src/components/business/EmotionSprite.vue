@@ -505,7 +505,7 @@ const drawFace = (ctx, template, size) => {
   ctx.stroke()
 }
 
-// 动画循环
+// 动画循环（透明背景版）
 const animate = () => {
   const canvas = canvasRef.value
   if (!canvas) return
@@ -515,16 +515,7 @@ const animate = () => {
   const ctx = canvas.getContext('2d')
   ctx.clearRect(0, 0, canvasWidth.value, canvasHeight.value)
   
-  // 绘制背景
-  const gradient = ctx.createRadialGradient(
-    spritePos.value.x, spritePos.value.y, 0,
-    spritePos.value.x, spritePos.value.y, 150
-  )
-  gradient.addColorStop(0, (currentTemplate.value?.color || '#FFD93D') + '20')
-  gradient.addColorStop(1, 'transparent')
-  ctx.fillStyle = gradient
-  ctx.fillRect(0, 0, canvasWidth.value, canvasHeight.value)
-  
+  // 不绘制背景，保持透明
   if (currentTemplate.value) {
     drawSprite(ctx, currentTemplate.value, spritePos.value)
   }
@@ -681,7 +672,7 @@ onUnmounted(() => {
 .emotion-sprite-container {
   width: 100%;
   height: 100%;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  background: transparent;
   border-radius: 20px;
   overflow: hidden;
   position: relative;

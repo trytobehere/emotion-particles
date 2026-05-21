@@ -2,34 +2,88 @@
   <div id="app">
     <router-view />
     
-    <!-- 底部导航 -->
-    <nav class="bottom-nav">
-      <router-link to="/" class="nav-item">
-        <span class="icon">✨</span>
-        <span class="label">精灵</span>
-      </router-link>
-      <router-link to="/diary" class="nav-item">
-        <span class="icon">📔</span>
-        <span class="label">日记</span>
-      </router-link>
-      <router-link to="/dashboard" class="nav-item">
-        <span class="icon">📊</span>
-        <span class="label">看板</span>
-      </router-link>
-      <router-link to="/universe" class="nav-item">
-        <span class="icon">🌌</span>
-        <span class="label">宇宙</span>
-      </router-link>
-      <router-link to="/profile" class="nav-item">
-        <span class="icon">👤</span>
-        <span class="label">我的</span>
-      </router-link>
-    </nav>
+    <!-- 未登录时显示登录/注册入口（右上角） -->
+    <div v-if="!isLoggedIn" class="login-hint">
+      <router-link to="/login" class="login-link">登录</router-link>
+      <span class="divider">|</span>
+      <router-link to="/register" class="register-link">注册</router-link>
+    </div>
+    
+    <!-- 悬浮式可折叠底部导航（仅登录后显示） -->
+    <div v-if="isLoggedIn" class="nav-float" :class="{ expanded: isExpanded }">
+      <!-- 收起状态的按钮 -->
+      <div v-if="!isExpanded" class="nav-toggle-btn" @click="toggleNav">
+        <span class="dot"></span>
+        <span class="dot"></span>
+        <span class="dot"></span>
+      </div>
+      
+      <!-- 展开状态的导航 -->
+      <div v-else class="nav-expanded">
+        <div class="nav-header">
+          <span class="nav-title">导航菜单</span>
+          <button class="close-btn" @click="toggleNav">✕</button>
+        </div>
+        <div class="nav-items">
+          <router-link to="/" class="nav-item" @click="onNavClick">
+            <span class="nav-icon">✨</span>
+            <span class="nav-label">精灵</span>
+          </router-link>
+          <router-link to="/diary" class="nav-item" @click="onNavClick">
+            <span class="nav-icon">📔</span>
+            <span class="nav-label">日记</span>
+          </router-link>
+          <router-link to="/dashboard" class="nav-item" @click="onNavClick">
+            <span class="nav-icon">📊</span>
+            <span class="nav-label">看板</span>
+          </router-link>
+          <router-link to="/universe" class="nav-item" @click="onNavClick">
+            <span class="nav-icon">🌌</span>
+            <span class="nav-label">宇宙</span>
+          </router-link>
+          <router-link to="/profile" class="nav-item" @click="onNavClick">
+            <span class="nav-icon">👤</span>
+            <span class="nav-label">我的</span>
+          </router-link>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-// App根组件
+import { ref, onMounted, computed } from 'vue'
+import { useUserStore } from '@/stores/userStore'
+
+const userStore = useUserStore()
+
+const isExpanded = ref(false)
+
+// ✅ 修改：使用 userStore 的 isLoggedIn，而不是直接检查 localStorage
+const isLoggedIn = computed(() => userStore.isLoggedIn)
+
+// 从本地存储读取导航状态
+onMounted(() => {
+  const saved = localStorage.getItem('navExpanded')
+  if (saved !== null) {
+    isExpanded.value = saved === 'true'
+  }
+  
+  // ✅ 修改：调用 userStore.init() 自动恢复登录状态
+  userStore.init()
+})
+
+// 切换导航
+const toggleNav = () => {
+  isExpanded.value = !isExpanded.value
+  localStorage.setItem('navExpanded', isExpanded.value)
+}
+
+// 点击导航项
+const onNavClick = () => {
+  // 可选：点击后自动收起导航
+  // isExpanded.value = false
+}
 </script>
 
 <style lang="scss">
@@ -51,40 +105,199 @@ html, body {
   font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
-.bottom-nav {
+// 未登录时的登录入口
+.login-hint {
   position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 70px;
-  background: rgba(255, 255, 255, 0.95);
+  top: 20px;
+  right: 20px;
+  z-index: 1000;
+  background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(10px);
-  display: flex;
-  justify-content: space-around;
-  align-items: center;
-  border-top: 1px solid rgba(0, 0, 0, 0.05);
-  padding-bottom: env(safe-area-inset-bottom);
+  padding: 10px 20px;
+  border-radius: 30px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  
+  a {
+    text-decoration: none;
+    color: #667eea;
+    font-weight: 500;
+    font-size: 14px;
+    
+    &:hover {
+      color: #764ba2;
+    }
+  }
+  
+  .divider {
+    margin: 0 10px;
+    color: #ccc;
+  }
+}
+
+// 悬浮式导航
+.nav-float {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
   z-index: 1000;
   
-  .nav-item {
+  .nav-toggle-btn {
+    width: 56px;
+    height: 56px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(12px);
+    border-radius: 28px;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    text-decoration: none;
-    color: #999;
-    transition: all 0.3s;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    transition: all 0.3s ease;
+    border: 1px solid rgba(255, 255, 255, 0.3);
     
-    &.router-link-active {
-      color: #667eea;
+    .dot {
+      width: 6px;
+      height: 6px;
+      background: #667eea;
+      border-radius: 50%;
+      transition: all 0.3s ease;
     }
     
-    .icon {
-      font-size: 24px;
-      margin-bottom: 4px;
+    &:hover {
+      transform: scale(1.05);
+      box-shadow: 0 6px 25px rgba(102, 126, 234, 0.3);
+      background: rgba(255, 255, 255, 1);
+      
+      .dot {
+        background: #764ba2;
+      }
     }
     
-    .label {
-      font-size: 12px;
+    &:active {
+      transform: scale(0.98);
+    }
+  }
+  
+  .nav-expanded {
+    background: rgba(255, 255, 255, 0.98);
+    backdrop-filter: blur(20px);
+    border-radius: 28px;
+    padding: 16px 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    animation: slideIn 0.3s ease;
+    
+    .nav-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+      
+      .nav-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: #333;
+      }
+      
+      .close-btn {
+        width: 28px;
+        height: 28px;
+        border-radius: 14px;
+        border: none;
+        background: rgba(0, 0, 0, 0.05);
+        cursor: pointer;
+        font-size: 14px;
+        color: #999;
+        transition: all 0.2s;
+        
+        &:hover {
+          background: rgba(0, 0, 0, 0.1);
+          color: #666;
+        }
+      }
+    }
+    
+    .nav-items {
+      display: flex;
+      gap: 12px;
+      
+      .nav-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-decoration: none;
+        padding: 10px 14px;
+        border-radius: 20px;
+        transition: all 0.2s;
+        color: #999;
+        
+        &.router-link-active {
+          background: linear-gradient(135deg, #667eea15, #764ba215);
+          color: #667eea;
+        }
+        
+        .nav-icon {
+          font-size: 24px;
+          margin-bottom: 4px;
+        }
+        
+        .nav-label {
+          font-size: 11px;
+          font-weight: 500;
+        }
+        
+        &:hover {
+          background: rgba(102, 126, 234, 0.1);
+          transform: translateY(-2px);
+          color: #667eea;
+        }
+        
+        &:active {
+          transform: translateY(0);
+        }
+      }
+    }
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+// 移动端适配
+@media (max-width: 768px) {
+  .nav-float {
+    bottom: 20px;
+    right: 20px;
+    
+    .nav-expanded {
+      padding: 14px 16px;
+      
+      .nav-items {
+        gap: 8px;
+        
+        .nav-item {
+          padding: 8px 10px;
+          
+          .nav-icon {
+            font-size: 22px;
+          }
+          
+          .nav-label {
+            font-size: 10px;
+          }
+        }
+      }
     }
   }
 }

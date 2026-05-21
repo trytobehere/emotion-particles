@@ -3,45 +3,72 @@
     <!-- 粒子流背景 -->
     <ParticleFlow />
     
-    <!-- 树洞内容层 -->
-    <div class="content-layer">
-      <!-- 顶部操作栏 -->
-      <div class="action-bar">
-        <h2>🌌 情绪宇宙</h2>
-        <el-button type="primary" round @click="showPublish = true">
-          <el-icon><Edit /></el-icon>
-          发布树洞
-        </el-button>
-      </div>
-      
-      <!-- 标签页 -->
-      <el-tabs v-model="activeTab" class="universe-tabs">
-        <el-tab-pane label="最新" name="latest">
-          <div class="treehole-list">
-            <TreeholeCard 
-              v-for="post in posts" 
-              :key="post.id"
-              :post="post"
-              @like="handleLike"
-              @click="viewDetail(post)"
-              @comment="viewDetail(post)"
-            />
-          </div>
-        </el-tab-pane>
-        
-        <el-tab-pane label="热门" name="hot">
-          <div class="treehole-list">
-            <TreeholeCard 
-              v-for="post in hotPosts" 
-              :key="post.id"
-              :post="post"
-              @like="handleLike"
-              @click="viewDetail(post)"
-            />
-          </div>
-        </el-tab-pane>
-      </el-tabs>
+    <!-- 顶部操作栏（居中） -->
+    <div class="action-bar">
+      <h2>🌌 情绪宇宙</h2>
+      <el-button type="primary" round @click="showPublish = true">
+        <el-icon><Edit /></el-icon>
+        发布
+      </el-button>
     </div>
+    
+    <!-- 展开树洞按钮（右下角） -->
+    <div class="expand-float-btn" @click="toggleTreehole" v-if="!isTreeholeOpen">
+      <span class="btn-icon">💬</span>
+      <span class="btn-text">树洞</span>
+    </div>
+    
+    <!-- 消息弹窗（可拖拽调整高度） -->
+    <transition name="message-slide">
+      <div 
+        v-if="isTreeholeOpen" 
+        class="message-panel"
+        :style="{ height: panelHeight + 'px' }"
+      >
+        <!-- 拖拽手柄 -->
+        <div class="drag-handle" @mousedown="startDrag">
+          <span class="drag-bar"></span>
+        </div>
+        
+        <div class="message-header">
+          <span class="title">📬 树洞消息</span>
+          <span class="close-btn" @click="toggleTreehole">✕</span>
+        </div>
+        <div class="message-list">
+          <div 
+            v-for="post in displayPosts" 
+            :key="post.id"
+            class="message-card"
+            @click="viewDetail(post)"
+          >
+            <div class="message-left">
+              <span class="emotion-badge" :style="{ background: getEmotionColor(post.emotion) }">
+                {{ post.emotion }}
+              </span>
+            </div>
+            <div class="message-right">
+              <div class="message-header-info">
+                <span class="anonymous-id">{{ post.anonymousId }}</span>
+                <span class="time">{{ post.time }}</span>
+              </div>
+              <p class="message-content">{{ post.content }}</p>
+              <div class="message-actions">
+                <span class="action" @click.stop="handleLike(post.id)">
+                  {{ post.liked ? '❤️' : '🤍' }} {{ post.likes }}
+                </span>
+                <span class="action" @click.stop="viewDetail(post)">
+                  💬 {{ post.comments }}
+                </span>
+              </div>
+            </div>
+          </div>
+          
+          <div v-if="displayPosts.length === 0" class="empty-message">
+            <span>📭 暂无树洞消息</span>
+          </div>
+        </div>
+      </div>
+    </transition>
     
     <!-- 发布抽屉 -->
     <el-drawer
@@ -91,9 +118,25 @@
       size="80%"
     >
       <div class="detail-content" v-if="currentPost">
-        <TreeholeCard :post="currentPost" @like="handleLike" />
+        <div class="detail-card">
+          <div class="detail-header">
+            <span class="emotion-badge-large" :style="{ background: getEmotionColor(currentPost.emotion) }">
+              {{ currentPost.emotion }}
+            </span>
+            <div class="detail-user">
+              <span class="anonymous-id">{{ currentPost.anonymousId }}</span>
+              <span class="time">{{ currentPost.time }}</span>
+            </div>
+          </div>
+          <p class="detail-content-text">{{ currentPost.content }}</p>
+          <div class="detail-actions">
+            <span class="action" @click="handleLike(currentPost.id)">
+              {{ currentPost.liked ? '❤️' : '🤍' }} {{ currentPost.likes }}
+            </span>
+            <span class="action">💬 {{ currentPost.comments }}</span>
+          </div>
+        </div>
         
-        <!-- 评论区 -->
         <div class="comment-section">
           <h4>评论 ({{ comments.length }})</h4>
           
@@ -105,7 +148,6 @@
             </div>
           </div>
           
-          <!-- 发表评论 -->
           <div class="comment-input">
             <el-input
               v-model="newComment"
@@ -124,132 +166,256 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Edit } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import ParticleFlow from '@/components/business/ParticleFlow.vue'
-import TreeholeCard from '@/components/business/TreeholeCard.vue'
+import request from '@/utils/request'
+import { useUserStore } from '@/stores/userStore'
 
-const activeTab = ref('latest')
+const userStore = useUserStore()
+
 const showPublish = ref(false)
 const showDetail = ref(false)
 const currentPost = ref(null)
+const isTreeholeOpen = ref(false)
+const loading = ref(false)
 
-// 模拟数据
-const posts = ref([
-  {
-    id: 1,
-    anonymousId: '星空旅行者',
-    content: '今天完成了一个大项目，虽然很累但是很有成就感！',
-    emotion: '😊',
-    time: '5分钟前',
-    likes: 24,
-    comments: 5,
-    liked: false
-  },
-  {
-    id: 2,
-    anonymousId: '雨后彩虹',
-    content: '有时候觉得自己不够好，但想想每个人都有自己的节奏...',
-    emotion: '😔',
-    time: '15分钟前',
-    likes: 18,
-    comments: 8,
-    liked: true
-  },
-  {
-    id: 3,
-    anonymousId: '清风徐来',
-    content: '周末想去看海，有人一起吗？',
-    emotion: '😌',
-    time: '32分钟前',
-    likes: 42,
-    comments: 12,
-    liked: false
-  },
-  {
-    id: 4,
-    anonymousId: '月光诗人',
-    content: '刚看完一本好书，内心平静而充实。',
-    emotion: '😌',
-    time: '1小时前',
-    likes: 15,
-    comments: 3,
-    liked: false
+// ========== 拖拽调整高度 ==========
+const panelHeight = ref(400)  // 默认高度 400px
+const isDragging = ref(false)
+const startY = ref(0)
+const startHeight = ref(0)
+const maxHeight = ref(window.innerHeight * 0.85)
+const minHeight = ref(250)
+
+const startDrag = (e) => {
+  isDragging.value = true
+  startY.value = e.clientY
+  startHeight.value = panelHeight.value
+  
+  document.addEventListener('mousemove', onDrag)
+  document.addEventListener('mouseup', stopDrag)
+  document.body.style.cursor = 'ns-resize'
+  document.body.style.userSelect = 'none'
+}
+
+const onDrag = (e) => {
+  if (!isDragging.value) return
+  
+  const deltaY = startY.value - e.clientY  // 向上拖增加高度
+  let newHeight = startHeight.value + deltaY
+  
+  // 限制高度范围
+  newHeight = Math.max(minHeight.value, Math.min(maxHeight.value, newHeight))
+  panelHeight.value = newHeight
+}
+
+const stopDrag = () => {
+  isDragging.value = false
+  document.removeEventListener('mousemove', onDrag)
+  document.removeEventListener('mouseup', stopDrag)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+  
+  // 保存高度到本地
+  localStorage.setItem('treeholePanelHeight', panelHeight.value)
+}
+
+// 窗口大小变化时更新最大高度
+const updateMaxHeight = () => {
+  maxHeight.value = window.innerHeight * 0.85
+  // 如果当前高度超过新的最大高度，调整它
+  if (panelHeight.value > maxHeight.value) {
+    panelHeight.value = maxHeight.value
   }
-])
+}
 
-// 热门排序
-const hotPosts = computed(() => {
-  return [...posts.value].sort((a, b) => b.likes - a.likes)
+// ========== 树洞列表数据 ==========
+const posts = ref([])
+
+// 情绪颜色映射
+const getEmotionColor = (emotion) => {
+  const colors = {
+    '😊': '#FFD93D',
+    '😌': '#6BCB77',
+    '😫': '#9B9B9B',
+    '😰': '#FF9F9F',
+    '🤩': '#FF6B6B',
+    '😔': '#A78BFA'
+  }
+  return colors[emotion] || '#999'
+}
+
+// ========== 获取树洞列表 ==========
+const fetchTreeholes = async () => {
+  loading.value = true
+  try {
+    const res = await request.get('/treeholes', {
+      params: { page: 1, size: 50, sort: 'new' }
+    })
+    posts.value = (res.data?.content || res.data || []).map(item => ({
+      id: item.id,
+      anonymousId: item.anonymousId,
+      content: item.content,
+      emotion: item.tagEmoji || '😊',
+      time: formatTime(item.createdAt),
+      likes: item.likeCount || 0,
+      comments: item.commentCount || 0,
+      liked: false,
+      tagId: item.tagId
+    }))
+  } catch (error) {
+    console.error('获取树洞失败', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+// 格式化时间
+const formatTime = (dateStr) => {
+  if (!dateStr) return '刚刚'
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diff = now - date
+  
+  if (diff < 60000) return '刚刚'
+  if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
+  if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
+  if (diff < 604800000) return Math.floor(diff / 86400000) + '天前'
+  return date.toLocaleDateString('zh-CN')
+}
+
+const displayPosts = computed(() => {
+  return [...posts.value].sort((a, b) => b.id - a.id)
 })
 
-// 新帖
+// ========== 发布树洞 ==========
 const newPost = ref({
   content: '',
   emotion: '😊'
 })
 
-const emotions = ['😊', '😌', '😫', '😰', '🤩', '😔']
-
-// 评论数据
-const comments = ref([
-  { id: 1, user: '匿名用户A', content: '加油！', time: '2分钟前' },
-  { id: 2, user: '匿名用户B', content: '我也是这样想的', time: '10分钟前' }
-])
-const newComment = ref('')
-
-// 发布树洞
-const publishPost = () => {
-  posts.value.unshift({
-    id: Date.now(),
-    anonymousId: `匿名用户${Math.floor(Math.random() * 1000)}`,
-    content: newPost.value.content,
-    emotion: newPost.value.emotion,
-    time: '刚刚',
-    likes: 0,
-    comments: 0,
-    liked: false
-  })
-  
-  ElMessage.success('发布成功')
-  showPublish.value = false
-  newPost.value = { content: '', emotion: '😊' }
+const emotionToTagId = {
+  '😊': 1, '😌': 2, '😫': 3, '😰': 4, '🤩': 5, '😔': 6
 }
 
-// 点赞
-const handleLike = (id) => {
-  const post = posts.value.find(p => p.id === id)
-  if (post) {
-    post.liked = !post.liked
-    post.likes += post.liked ? 1 : -1
+const emotions = ['😊', '😌', '😫', '😰', '🤩', '😔']
+
+const publishPost = async () => {
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录')
+    return
+  }
+  if (!newPost.value.content.trim()) {
+    ElMessage.warning('请输入内容')
+    return
+  }
+  try {
+    const tagId = emotionToTagId[newPost.value.emotion] || 1
+    await request.post('/treeholes', { content: newPost.value.content, tagId })
+    ElMessage.success('发布成功')
+    showPublish.value = false
+    newPost.value = { content: '', emotion: '😊' }
+    await fetchTreeholes()
+    isTreeholeOpen.value = true
+  } catch (error) {
+    console.error('发布失败', error)
+    ElMessage.error('发布失败，请重试')
   }
 }
 
-// 查看详情
+// ========== 点赞 ==========
+const handleLike = async (id) => {
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录')
+    return
+  }
+  const post = posts.value.find(p => p.id === id)
+  if (!post) return
+  try {
+    const res = await request.post(`/treeholes/${id}/like`)
+    const data = res.data || res
+    post.liked = data.liked
+    post.likes = data.likeCount
+  } catch (error) {
+    console.error('点赞失败', error)
+  }
+}
+
+// ========== 查看详情 ==========
 const viewDetail = (post) => {
   currentPost.value = post
   showDetail.value = true
+  fetchComments(post.id)
 }
 
-// 添加评论
-const addComment = () => {
-  if (!newComment.value.trim()) return
-  
-  comments.value.push({
-    id: Date.now(),
-    user: '我',
-    content: newComment.value,
-    time: '刚刚'
-  })
-  
-  if (currentPost.value) {
-    currentPost.value.comments++
+// ========== 评论 ==========
+const comments = ref([])
+const newComment = ref('')
+
+const fetchComments = async (treeholeId) => {
+  try {
+    const res = await request.get(`/treeholes/${treeholeId}/comments`)
+    comments.value = (res.data || []).map(item => ({
+      id: item.id,
+      user: item.anonymousId,
+      content: item.content,
+      time: formatTime(item.createdAt)
+    }))
+  } catch (error) {
+    console.error('获取评论失败', error)
+    comments.value = []
   }
-  
-  newComment.value = ''
-  ElMessage.success('评论成功')
 }
+
+const addComment = async () => {
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录')
+    return
+  }
+  if (!newComment.value.trim()) return
+  try {
+    await request.post(`/treeholes/${currentPost.value.id}/comments`, {
+      content: newComment.value
+    })
+    comments.value.push({
+      id: Date.now(),
+      user: '我',
+      content: newComment.value,
+      time: '刚刚'
+    })
+    if (currentPost.value) currentPost.value.comments++
+    newComment.value = ''
+    ElMessage.success('评论成功')
+  } catch (error) {
+    console.error('评论失败', error)
+    ElMessage.error('评论失败')
+  }
+}
+
+// 切换树洞弹窗
+const toggleTreehole = () => {
+  isTreeholeOpen.value = !isTreeholeOpen.value
+  if (isTreeholeOpen.value && posts.value.length === 0) {
+    fetchTreeholes()
+  }
+}
+
+onMounted(() => {
+  // 恢复保存的高度
+  const savedHeight = localStorage.getItem('treeholePanelHeight')
+  if (savedHeight) {
+    panelHeight.value = parseInt(savedHeight)
+  }
+  window.addEventListener('resize', updateMaxHeight)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', updateMaxHeight)
+  document.removeEventListener('mousemove', onDrag)
+  document.removeEventListener('mouseup', stopDrag)
+})
 </script>
 
 <style scoped lang="scss">
@@ -258,182 +424,402 @@ const addComment = () => {
   width: 100%;
   height: 100vh;
   overflow: hidden;
+}
+
+.action-bar {
+  position: absolute;
+  top: 20px;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
   
-  .content-layer {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+  h2 {
+    color: white;
+    margin: 0 0 12px 0;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+    font-size: 24px;
+  }
+}
+
+.expand-float-btn {
+  position: fixed;
+  bottom: 100px;
+  right: 20px;
+  width: 56px;
+  height: 56px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  border-radius: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+  cursor: pointer;
+  z-index: 100;
+  transition: all 0.3s;
+  
+  &:hover {
+    transform: scale(1.05);
+  }
+  
+  .btn-icon {
+    font-size: 24px;
+    color: white;
+  }
+  
+  .btn-text {
+    font-size: 10px;
+    color: white;
+  }
+}
+
+// 消息弹窗
+.message-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  min-height: 250px;
+  max-height: 85vh;
+  background: rgba(20, 20, 35, 0.25);
+  backdrop-filter: blur(15px);
+  border-radius: 30px 30px 0 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.2);
+  transition: height 0.1s ease;
+  
+  // 拖拽手柄
+  .drag-handle {
     display: flex;
-    flex-direction: column;
-    pointer-events: none;
+    justify-content: center;
+    padding: 8px 0 4px;
+    cursor: ns-resize;
     
-    > * {
-      pointer-events: auto;
+    .drag-bar {
+      width: 40px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.4);
+      border-radius: 2px;
+      transition: background 0.2s;
+    }
+    
+    &:hover .drag-bar {
+      background: rgba(255, 255, 255, 0.7);
+      width: 50px;
     }
   }
   
-  .action-bar {
+  .message-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 20px;
+    padding: 8px 20px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.15);
     
-    h2 {
+    .title {
+      font-size: 18px;
+      font-weight: 600;
       color: white;
-      margin: 0;
-      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+    
+    .close-btn {
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 16px;
+      background: rgba(0, 0, 0, 0.2);
+      cursor: pointer;
+      color: white;
+      
+      &:hover {
+        background: rgba(0, 0, 0, 0.3);
+      }
     }
   }
   
-  .universe-tabs {
+  .message-list {
     flex: 1;
-    padding: 0 20px;
-    overflow: hidden;
+    overflow-y: auto;
+    padding: 16px;
     
-    :deep(.el-tabs__header) {
-      margin: 0;
+    &::-webkit-scrollbar {
+      width: 4px;
     }
     
-    :deep(.el-tabs__nav-wrap::after) {
-      display: none;
-    }
-    
-    :deep(.el-tabs__item) {
-      color: rgba(255, 255, 255, 0.7);
-      font-size: 16px;
-      
-      &.is-active {
-        color: white;
-      }
-    }
-    
-    :deep(.el-tabs__active-bar) {
-      background: white;
-    }
-    
-    :deep(.el-tabs__content) {
-      height: calc(100vh - 140px);
-      overflow-y: auto;
-      padding-bottom: 80px;
-      
-      &::-webkit-scrollbar {
-        width: 4px;
-      }
-      
-      &::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.3);
-        border-radius: 2px;
-      }
+    &::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.3);
+      border-radius: 2px;
     }
   }
   
-  .treehole-list {
-    padding: 10px 0;
-  }
-  
-  .publish-form {
-    padding: 20px;
+  .message-card {
+    display: flex;
+    gap: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(5px);
+    border-radius: 20px;
+    padding: 14px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid rgba(255, 255, 255, 0.08);
     
-    .emotion-selector {
-      margin-top: 20px;
-      
-      .label {
-        display: block;
-        margin-bottom: 12px;
-        color: #666;
-      }
-      
-      .emotion-options {
+    &:hover {
+      background: rgba(255, 255, 255, 0.12);
+      transform: translateX(4px);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+    
+    .message-left {
+      .emotion-badge {
+        width: 50px;
+        height: 50px;
+        border-radius: 25px;
         display: flex;
-        gap: 12px;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      }
+    }
+    
+    .message-right {
+      flex: 1;
+      
+      .message-header-info {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 6px;
         
-        .emotion-option {
-          font-size: 28px;
-          padding: 8px;
-          border-radius: 12px;
+        .anonymous-id {
+          color: white;
+          font-size: 13px;
+          font-weight: 500;
+          text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        .time {
+          color: rgba(255, 255, 255, 0.7);
+          font-size: 11px;
+        }
+      }
+      
+      .message-content {
+        color: rgba(255, 255, 255, 0.95);
+        font-size: 14px;
+        line-height: 1.4;
+        margin: 0 0 8px 0;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+      }
+      
+      .message-actions {
+        display: flex;
+        gap: 16px;
+        
+        .action {
+          font-size: 12px;
+          color: rgba(255, 255, 255, 0.7);
           cursor: pointer;
-          transition: all 0.3s;
-          opacity: 0.5;
-          
-          &.active {
-            opacity: 1;
-            background: rgba(102, 126, 234, 0.1);
-            transform: scale(1.1);
-          }
+          transition: all 0.2s;
           
           &:hover {
-            opacity: 0.8;
+            color: white;
           }
         }
-      }
-    }
-    
-    .publish-footer {
-      display: flex;
-      gap: 12px;
-      margin-top: 30px;
-      
-      .el-button {
-        flex: 1;
-        height: 48px;
       }
     }
   }
   
-  .detail-content {
+  .empty-message {
+    text-align: center;
+    padding: 40px;
+    color: rgba(255, 255, 255, 0.7);
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  }
+}
+
+// 详情样式
+.detail-content {
+  padding: 20px;
+  padding-bottom: 100px;
+  
+  .detail-card {
+    background: #f5f7fa;
+    border-radius: 20px;
     padding: 20px;
-    padding-bottom: 100px;
+    margin-bottom: 20px;
     
-    .comment-section {
-      margin-top: 24px;
+    .detail-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
       
-      h4 {
-        color: #333;
-        margin-bottom: 16px;
+      .emotion-badge-large {
+        width: 50px;
+        height: 50px;
+        border-radius: 25px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
       }
       
-      .comment-list {
-        margin-bottom: 20px;
-        max-height: 300px;
-        overflow-y: auto;
+      .detail-user {
+        .anonymous-id {
+          display: block;
+          font-weight: 600;
+          color: #333;
+        }
         
-        .comment-item {
-          padding: 12px;
-          background: #f5f7fa;
-          border-radius: 12px;
-          margin-bottom: 10px;
-          
-          .comment-user {
-            font-weight: 600;
-            color: #667eea;
-            font-size: 13px;
-          }
-          
-          .comment-content {
-            margin: 6px 0;
-            color: #333;
-            font-size: 14px;
-          }
-          
-          .comment-time {
-            font-size: 11px;
-            color: #999;
-          }
+        .time {
+          font-size: 11px;
+          color: #999;
         }
       }
+    }
+    
+    .detail-content-text {
+      color: #333;
+      line-height: 1.6;
+      margin: 0 0 16px 0;
+      white-space: pre-wrap;
+    }
+    
+    .detail-actions {
+      display: flex;
+      gap: 20px;
       
-      .comment-input {
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        padding: 16px 20px;
-        background: white;
-        border-top: 1px solid #eee;
+      .action {
+        font-size: 14px;
+        color: #999;
+        cursor: pointer;
+        
+        &:hover {
+          color: #667eea;
+        }
       }
     }
   }
+  
+  .comment-section {
+    h4 {
+      color: #333;
+      margin-bottom: 16px;
+    }
+    
+    .comment-list {
+      margin-bottom: 20px;
+      max-height: 300px;
+      overflow-y: auto;
+      
+      .comment-item {
+        padding: 12px;
+        background: #f5f7fa;
+        border-radius: 12px;
+        margin-bottom: 10px;
+        
+        .comment-user {
+          font-weight: 600;
+          color: #667eea;
+          font-size: 13px;
+        }
+        
+        .comment-content {
+          margin: 6px 0;
+          color: #333;
+          font-size: 14px;
+        }
+        
+        .comment-time {
+          font-size: 11px;
+          color: #999;
+        }
+      }
+    }
+    
+    .comment-input {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 16px 20px;
+      background: white;
+      border-top: 1px solid #eee;
+    }
+  }
+}
+
+.publish-form {
+  padding: 20px;
+  
+  .emotion-selector {
+    margin-top: 20px;
+    
+    .label {
+      display: block;
+      margin-bottom: 12px;
+      color: #666;
+    }
+    
+    .emotion-options {
+      display: flex;
+      gap: 12px;
+      
+      .emotion-option {
+        font-size: 28px;
+        padding: 8px;
+        border-radius: 12px;
+        cursor: pointer;
+        transition: all 0.3s;
+        opacity: 0.5;
+        
+        &.active {
+          opacity: 1;
+          background: rgba(102, 126, 234, 0.1);
+          transform: scale(1.1);
+        }
+        
+        &:hover {
+          opacity: 0.8;
+        }
+      }
+    }
+  }
+  
+  .publish-footer {
+    display: flex;
+    gap: 12px;
+    margin-top: 30px;
+    
+    .el-button {
+      flex: 1;
+      height: 48px;
+    }
+  }
+}
+
+.message-slide-enter-active,
+.message-slide-leave-active {
+  transition: all 0.3s ease;
+}
+
+.message-slide-enter-from,
+.message-slide-leave-to {
+  transform: translateY(100%);
+  opacity: 0;
 }
 </style>

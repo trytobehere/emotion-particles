@@ -1,5 +1,5 @@
 <template>
-  <div class="profile-view">
+  <div class="profile-view" v-if="userStore.userInfo">
     <!-- 头部 -->
     <div class="header">
       <h1>👤 个人中心</h1>
@@ -12,21 +12,21 @@
     <div class="user-card">
       <div class="avatar-section">
         <div class="avatar" @click="showAvatarPicker = true">
-          {{ userStore.userInfo.avatar }}
+          {{ userStore.userInfo?.avatar || '😊' }}
         </div>
         <div class="user-info">
-          <h2>{{ userStore.userInfo.username }}</h2>
-          <p class="bio">{{ userStore.userInfo.bio }}</p>
+          <h2>{{ userStore.userInfo?.username || '加载中...' }}</h2>
+          <p class="bio">{{ userStore.userInfo?.bio || '' }}</p>
         </div>
       </div>
       
       <div class="user-stats">
         <div class="stat-item">
-          <span class="value">{{ userStore.daysSinceJoin }}</span>
+          <span class="value">{{ userStore.daysSinceJoin || 0 }}</span>
           <span class="label">加入天数</span>
         </div>
         <div class="stat-item">
-          <span class="value">{{ diaryStore.diaries.length }}</span>
+          <span class="value">{{ diaryStore.diaries?.length || 0 }}</span>
           <span class="label">日记</span>
         </div>
         <div class="stat-item">
@@ -144,7 +144,7 @@
           v-for="avatar in avatarOptions" 
           :key="avatar"
           class="avatar-option"
-          :class="{ active: userStore.userInfo.avatar === avatar }"
+          :class="{ active: userStore.userInfo?.avatar === avatar }"
           @click="selectAvatar(avatar)"
         >
           {{ avatar }}
@@ -203,10 +203,15 @@
       </div>
     </el-drawer>
   </div>
+  
+  <!-- 加载中状态 -->
+  <div v-else class="loading">
+    <p>加载中...</p>
+  </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Setting, ArrowRight } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -224,49 +229,55 @@ const showSettings = ref(false)
 
 // 编辑表单
 const editForm = reactive({
-  username: userStore.userInfo.username,
-  email: userStore.userInfo.email,
-  bio: userStore.userInfo.bio
+  username: '',
+  email: '',
+  bio: ''
 })
 
+// 初始化编辑表单
+const initEditForm = () => {
+  if (userStore.userInfo) {
+    editForm.username = userStore.userInfo.username || ''
+    editForm.email = userStore.userInfo.email || ''
+    editForm.bio = userStore.userInfo.bio || ''
+  }
+}
+
 // 设置表单
-const settingsForm = reactive({ ...userStore.settings })
+const settingsForm = reactive({ 
+  theme: 'dark',
+  notifications: true,
+  anonymousMode: false,
+  autoSync: true,
+  fontSize: 'medium'
+})
 
 // 头像选项
 const avatarOptions = ['😊', '😎', '🥰', '🤔', '😌', '🌟', '🌈', '🌸', '🐼', '🦊', '🐨', '🐧']
 
-// 计算属性 - 必须先定义才能使用
+// 计算属性
 const totalRecords = computed(() => {
-  return diaryStore.diaries.length * 2
+  return (diaryStore.diaries?.length || 0) * 2
 })
 
 const continuousDays = computed(() => {
-  return diaryStore.diaries.length > 0 ? Math.min(7, diaryStore.diaries.length) : 0
+  return diaryStore.diaries?.length > 0 ? Math.min(7, diaryStore.diaries.length) : 0
 })
-
-// 更新统计数据
-const updateStats = () => {
-  const stats = {
-    totalDiaries: diaryStore.diaries.length,
-    totalRecords: totalRecords.value,
-    continuousDays: continuousDays.value,
-    totalLikes: 42
-  }
-  userStore.updateStatistics(stats)
-}
 
 // 编辑资料
 const handleEditProfile = () => {
-  editForm.username = userStore.userInfo.username
-  editForm.email = userStore.userInfo.email
-  editForm.bio = userStore.userInfo.bio
+  initEditForm()
   showEditProfile.value = true
 }
 
-const saveProfile = () => {
-  userStore.updateUserInfo(editForm)
-  showEditProfile.value = false
-  ElMessage.success('资料已更新')
+const saveProfile = async () => {
+  const result = await userStore.updateUserInfo(editForm)
+  if (result.success) {
+    showEditProfile.value = false
+    ElMessage.success('资料已更新')
+  } else {
+    ElMessage.error(result.error || '更新失败')
+  }
 }
 
 // 选择头像
@@ -306,6 +317,7 @@ const handleClearCache = async () => {
       type: 'warning'
     })
     localStorage.clear()
+    sessionStorage.clear()
     ElMessage.success('缓存已清除')
   } catch {
     // 取消
@@ -328,15 +340,26 @@ const handleLogout = async () => {
     await ElMessageBox.confirm('确定退出登录吗？', '提示', {
       type: 'warning'
     })
-    ElMessage.success('已退出登录')
+    userStore.logout()
+    router.push('/login')
   } catch {
     // 取消
   }
 }
 
-// 生命周期 - 放在最后
+// 监听 userInfo 变化
+watch(() => userStore.userInfo, (newVal) => {
+  if (newVal) {
+    initEditForm()
+  }
+}, { immediate: true })
+
 onMounted(() => {
-  updateStats()
+  initEditForm()
+  // 如果没有用户信息，尝试获取
+  if (!userStore.userInfo) {
+    userStore.fetchUserInfo()
+  }
 })
 </script>
 
@@ -555,5 +578,14 @@ onMounted(() => {
       }
     }
   }
+}
+
+.loading {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f7fa;
+  color: #999;
 }
 </style>

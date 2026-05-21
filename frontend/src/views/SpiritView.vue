@@ -1,5 +1,5 @@
 <template>
-  <div class="spirit-view">
+  <div class="spirit-view" :style="bgStyle">
     <div class="header">
       <h1>
         <span class="greeting">{{ greeting }}</span>
@@ -8,7 +8,7 @@
     </div>
     
     <div class="spirit-wrapper">
-      <GifSprite ref="spriteRef" />
+      <EmotionSprite />
     </div>
     
     <div class="quick-actions">
@@ -27,9 +27,17 @@
 <script setup>
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import GifSprite from '@/components/business/LottieSprite.vue'
+import EmotionSprite from '@/components/business/EmotionSprite.vue'
+import bgImage from '@/assets/1.png'
 
 const router = useRouter()
+
+const bgStyle = {
+  backgroundImage: `url(${bgImage})`,
+  backgroundSize: 'cover',
+  backgroundPosition: 'center',
+  backgroundAttachment: 'fixed'
+}
 
 const greeting = computed(() => {
   const hour = new Date().getHours()
@@ -57,7 +65,6 @@ const goToDashboard = () => router.push('/dashboard')
   display: flex;
   flex-direction: column;
   padding: 20px;
-  background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
   
   .header {
     color: white;

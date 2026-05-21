@@ -18,6 +18,26 @@
     <!-- 内容 -->
     <div class="content">{{ diary.content }}</div>
     
+    <!-- AI 摘要 -->
+    <div class="ai-summary">
+      <div class="ai-label">🤖 AI 摘要</div>
+      <div v-if="aiSummaryLoading" class="loading">
+        <el-icon class="is-loading"><Loading /></el-icon> AI 正在生成摘要...
+      </div>
+      <p v-else-if="aiSummary">{{ aiSummary }}</p>
+      <p v-else class="empty">暂无摘要</p>
+    </div>
+    
+    <!-- AI 建议 -->
+    <div class="ai-suggestion">
+      <div class="ai-label">💡 AI 建议</div>
+      <div v-if="aiSuggestionLoading" class="loading">
+        <el-icon class="is-loading"><Loading /></el-icon> AI 正在生成建议...
+      </div>
+      <p v-else-if="aiSuggestion">{{ aiSuggestion }}</p>
+      <p v-else class="empty">暂无建议</p>
+    </div>
+    
     <!-- 标签 -->
     <div class="tags" v-if="diary.tags?.length">
       <span v-for="tag in diary.tags" :key="tag" class="tag">{{ tag }}</span>
@@ -38,6 +58,10 @@
 </template>
 
 <script setup>
+import { ref, onMounted, watch } from 'vue'
+import { useDiaryStore } from '@/stores/diaryStore'
+import { Loading } from '@element-plus/icons-vue'
+
 const props = defineProps({
   diary: {
     type: Object,
@@ -46,6 +70,34 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close'])
+const diaryStore = useDiaryStore()
+const aiSummary = ref('')
+const aiSuggestion = ref('')
+const aiSummaryLoading = ref(false)
+const aiSuggestionLoading = ref(false)
+
+const loadAI = async () => {
+  if (props.diary.content) {
+    // 加载摘要
+    aiSummaryLoading.value = true
+    aiSummary.value = await diaryStore.generateSummary(props.diary.content)
+    aiSummaryLoading.value = false
+    
+    // 加载建议
+    aiSuggestionLoading.value = true
+    const emotionLabel = props.diary.emotion?.label || '中性'
+    aiSuggestion.value = await diaryStore.generateSuggestion(props.diary.content, emotionLabel)
+    aiSuggestionLoading.value = false
+  }
+}
+
+onMounted(() => {
+  loadAI()
+})
+
+watch(() => props.diary, () => {
+  loadAI()
+}, { deep: true })
 </script>
 
 <style scoped lang="scss">
@@ -91,6 +143,76 @@ const emit = defineEmits(['close'])
     color: #333;
     margin-bottom: 24px;
     white-space: pre-wrap;
+  }
+  
+  .ai-summary {
+    background: linear-gradient(135deg, #667eea15, #764ba215);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 24px;
+    border-left: 4px solid #667eea;
+    
+    .ai-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: #667eea;
+      margin-bottom: 8px;
+    }
+    
+    .loading {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #999;
+      font-size: 14px;
+    }
+    
+    .empty {
+      color: #999;
+      font-size: 14px;
+    }
+    
+    p {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #555;
+    }
+  }
+  
+  .ai-suggestion {
+    background: linear-gradient(135deg, #764ba215, #667eea15);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 24px;
+    border-left: 4px solid #764ba2;
+    
+    .ai-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: #764ba2;
+      margin-bottom: 8px;
+    }
+    
+    .loading {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #999;
+      font-size: 14px;
+    }
+    
+    .empty {
+      color: #999;
+      font-size: 14px;
+    }
+    
+    p {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #555;
+    }
   }
   
   .tags {

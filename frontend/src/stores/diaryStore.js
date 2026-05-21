@@ -1,68 +1,141 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import request from '@/utils/request'
 
 export const useDiaryStore = defineStore('diary', () => {
-  // 日记列表
-  const diaries = ref([
-    {
-      id: 1,
-      title: '今天工作有点累',
-      content: '项目赶进度，加班到9点...',
-      emotion: { emoji: '😫', label: '疲惫', color: '#9B9B9B' },
-      tags: ['工作', '加班'],
-      images: [],
-      createdAt: '2026-04-15 21:30',
-      weather: '多云'
-    },
-    {
-      id: 2,
-      title: '和朋友聚餐很开心',
-      content: '好久不见的老朋友，聊了很多...',
-      emotion: { emoji: '😊', label: '开心', color: '#FFD93D' },
-      tags: ['社交', '美食'],
-      images: [],
-      createdAt: '2026-04-14 19:20',
-      weather: '晴'
-    }
-  ])
+  const diaries = ref([])
   
-  // 常用标签
   const commonTags = ref([
     '工作', '学习', '生活', '社交', '家庭', 
     '健康', '运动', '美食', '旅行', '阅读',
     '电影', '音乐', '游戏', '购物', '理财'
   ])
   
+  // 加载日记列表
+  const fetchDiaries = async () => {
+    try {
+      const res = await request.get('/diaries')
+      const list = res.data?.content || res.data || []
+      // 转换数据格式，确保 emotion 字段存在
+      diaries.value = list.map(item => ({
+        id: item.id,
+        title: item.title || '无标题',
+        content: item.content || '',
+        contentPreview: item.contentPreview || (item.content?.substring(0, 80) || ''),
+        emotion: {
+          emoji: getEmotionEmoji(item.moodLevel),
+          label: getEmotionLabel(item.moodLevel),
+          color: getEmotionColor(item.moodLevel),
+          value: item.moodLevel || 3
+        },
+        tags: item.tags || [],
+        images: item.images || [],
+        createdAt: item.createdAt || new Date().toISOString(),
+        weather: item.weather || '晴',
+        moodLevel: item.moodLevel || 3
+      }))
+    } catch (error) {
+      console.error('获取日记失败', error)
+    }
+  }
+  
+  // 根据情绪值获取表情
+  const getEmotionEmoji = (level) => {
+    const map = { 1: '😔', 2: '😫', 3: '😌', 4: '😊', 5: '🤩' }
+    return map[level] || '😊'
+  }
+  
+  const getEmotionLabel = (level) => {
+    const map = { 1: '低落', 2: '疲惫', 3: '平静', 4: '开心', 5: '兴奋' }
+    return map[level] || '平静'
+  }
+  
+  const getEmotionColor = (level) => {
+    const map = { 1: '#A78BFA', 2: '#9B9B9B', 3: '#6BCB77', 4: '#FFD93D', 5: '#FF6B6B' }
+    return map[level] || '#6BCB77'
+  }
+  
   // 添加日记
-  const addDiary = (diary) => {
-    diaries.value.unshift({
-      id: Date.now(),
-      ...diary,
-      createdAt: new Date().toLocaleString('zh-CN')
-    })
+  const addDiary = async (diary) => {
+    try {
+      await request.post('/diaries', {
+        title: diary.title,
+        content: diary.content,
+        moodLevel: diary.emotion?.value || 3,
+        weather: diary.weather,
+        isPublic: 0
+      })
+      await fetchDiaries()
+    } catch (error) {
+      console.error('保存日记失败', error)
+      throw error
+    }
   }
   
   // 删除日记
-  const deleteDiary = (id) => {
-    const index = diaries.value.findIndex(d => d.id === id)
-    if (index > -1) {
-      diaries.value.splice(index, 1)
+  const deleteDiary = async (id) => {
+    try {
+      await request.delete(`/diaries/${id}`)
+      await fetchDiaries()
+    } catch (error) {
+      console.error('删除日记失败', error)
+      throw error
     }
   }
   
   // 更新日记
-  const updateDiary = (id, updates) => {
-    const diary = diaries.value.find(d => d.id === id)
-    if (diary) {
-      Object.assign(diary, updates)
+  const updateDiary = async (id, updates) => {
+    try {
+      await request.put(`/diaries/${id}`, updates)
+      await fetchDiaries()
+    } catch (error) {
+      console.error('更新日记失败', error)
+      throw error
     }
   }
   
+  // 获取草稿
+  const fetchDrafts = async () => {
+    try {
+      const res = await request.get('/diaries/drafts')
+      return res.data || []
+    } catch (error) {
+      console.error('获取草稿失败', error)
+      return []
+    }
+  }
+  
+  // 生成日记摘要
+  const generateSummary = async (content) => {
+    try {
+      const res = await request.post('/ai/summary', { content })
+      return res.data
+    } catch (error) {
+      console.error('生成摘要失败', error)
+      return ''
+    }
+  }
+
+  // 生成智能建议
+  const generateSuggestion = async (content, emotionLabel) => {
+    try {
+      const res = await request.post('/ai/suggestion', { content, emotionLabel })
+      return res.data
+    } catch (error) {
+      console.error('生成建议失败', error)
+      return ''
+    }
+  }
+
   return {
     diaries,
     commonTags,
+    fetchDiaries,
     addDiary,
     deleteDiary,
-    updateDiary
+    updateDiary,
+    fetchDrafts,
+    generateSummary,   // ✅ 新增
+    generateSuggestion // ✅ 新增
   }
 })
