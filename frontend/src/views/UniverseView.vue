@@ -1,8 +1,7 @@
 <template>
   <div class="universe-view">
     <!-- 粒子流背景 -->
-    <ParticleFlow />
-    
+    <ParticleFlow :particles="particles" />
     <!-- 顶部操作栏（居中） -->
     <div class="action-bar">
       <h2>🌌 情绪宇宙</h2>
@@ -415,6 +414,40 @@ onUnmounted(() => {
   window.removeEventListener('resize', updateMaxHeight)
   document.removeEventListener('mousemove', onDrag)
   document.removeEventListener('mouseup', stopDrag)
+})
+
+const particles = ref([])
+
+// 获取粒子数据
+const fetchParticles = async () => {
+  try {
+    const res = await request.get('/emotion-universe/particles')
+    particles.value = res.data || []
+  } catch (error) {
+    console.error('获取粒子数据失败', error)
+    // 如果失败，使用模拟数据
+    particles.value = generateMockData(80)
+  }
+}
+
+// 生成模拟数据 (用于演示)
+const generateMockData = (count) => {
+  const colors = ['#FFD93D', '#6BCB77', '#FF6B6B', '#A78BFA', '#FF9F9F']
+  const data = []
+  for (let i = 0; i < count; i++) {
+    data.push({
+      color: colors[Math.floor(Math.random() * colors.length)],
+      size: 5 + Math.random() * 15,
+      speed: 0.2 + Math.random() * 1.5,
+      treeholeId: i + 1,
+      contentPreview: `模拟情绪 #${i+1}`
+    })
+  }
+  return data
+}
+
+onMounted(() => {
+  fetchParticles()
 })
 </script>
 

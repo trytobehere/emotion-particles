@@ -14,76 +14,81 @@
       </div>
     </div>
     
-    <!-- 点击粒子提示 -->
-    <div v-if="selectedParticle" class="particle-tooltip" :style="tooltipStyle">
-      <div class="emotion-icon">{{ selectedParticle.emoji }}</div>
-      <div class="emotion-name">{{ selectedParticle.emotion }}</div>
-      <div class="user-info">匿名用户 · {{ selectedParticle.time }}</div>
+    <!-- 粒子悬停提示 -->
+    <div v-if="hoveredParticle" class="particle-tooltip" :style="tooltipStyle">
+      <div class="tooltip-content">
+        <div class="emotion-color" :style="{ background: hoveredParticle.color }"></div>
+        <div class="tooltip-text">{{ hoveredParticle.contentPreview }}</div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
+import { useRouter } from 'vue-router'
 
+const props = defineProps({
+  particles: {
+    type: Array,
+    default: () => []
+  }
+})
+
+const router = useRouter()
 const canvasRef = ref(null)
 const particles = ref([])
-const selectedParticle = ref(null)
+const hoveredParticle = ref(null)
 const tooltipStyle = ref({})
 
 // 配置
-const PARTICLE_COUNT = 200
+const PARTICLE_COUNT_LIMIT = 500
 const CONNECTION_DISTANCE = 120
+const MOUSE_RADIUS = 100
 
-// 情绪颜色映射
-const emotionColors = {
-  '😊 开心': '#FFD93D',
-  '😌 平静': '#6BCB77',
-  '😫 疲惫': '#9B9B9B',
-  '😰 焦虑': '#FF9F9F',
-  '🤩 兴奋': '#FF6B6B',
-  '😔 低落': '#A78BFA'
-}
-
-// 模拟在线人数
+// 模拟在线人数 (实际可以改为从后端获取)
 const onlineCount = ref(156)
-const mainEmotion = ref('😊 开心')
+const mainEmotion = ref('开心')
 
 // 粒子类
 class Particle {
-  constructor(canvasWidth, canvasHeight) {
+  constructor(data, canvasWidth, canvasHeight) {
     this.canvasWidth = canvasWidth
     this.canvasHeight = canvasHeight
-    this.reset()
-  }
-  
-  reset() {
-    this.x = Math.random() * this.canvasWidth
-    this.y = Math.random() * this.canvasHeight
-    this.vx = (Math.random() - 0.5) * 0.8
-    this.vy = (Math.random() - 0.5) * 0.8
-    this.size = Math.random() * 6 + 4
     
-    // 随机情绪
-    const emotions = Object.keys(emotionColors)
-    this.emotion = emotions[Math.floor(Math.random() * emotions.length)]
-    this.emoji = this.emotion.split(' ')[0]
-    this.color = emotionColors[this.emotion]
+    // 从后端数据初始化
+    this.x = Math.random() * canvasWidth
+    this.y = Math.random() * canvasHeight
+    this.color = data.color || '#FFD93D'
+    this.size = data.size || 8
+    this.speed = data.speed || 0.5
+    this.treeholeId = data.treeholeId || null
+    this.contentPreview = data.contentPreview || ''
+    this.type = data.type || 'mood'  // "treehole" 或 "mood"
     
-    // 时间标签
-    const times = ['刚刚', '5分钟前', '10分钟前', '30分钟前', '1小时前']
-    this.time = times[Math.floor(Math.random() * times.length)]
+    // ✅ 统一运动参数：所有粒子都运动
+    this.vx = (Math.random() - 0.5) * this.speed
+    this.vy = (Math.random() - 0.5) * this.speed - this.speed * 0.3 // 向上漂移
     
-    this.opacity = Math.random() * 0.5 + 0.3
-    this.glowIntensity = Math.random() * 20 + 10
+    // 树洞粒子稍大一点，更醒目
+    if (this.type === 'treehole') {
+      this.size = this.size * 1.2
+    }
+    
+    // 交互状态
+    this.isHovered = false
+    this.glowIntensity = Math.random() * 20 + 15
+    this.baseSize = this.size
+    this.opacity = 0.6 + Math.random() * 0.4
   }
   
   update(mouseX, mouseY) {
+    // ✅ 所有粒子都运动
     // 基础移动
     this.x += this.vx
     this.y += this.vy
     
-    // 边界反弹（带阻尼）
+    // 边界反弹 (带阻尼)
     if (this.x < 0 || this.x > this.canvasWidth) {
       this.vx *= -0.8
       this.x = Math.max(0, Math.min(this.canvasWidth, this.x))
@@ -93,21 +98,8 @@ class Particle {
       this.y = Math.max(0, Math.min(this.canvasHeight, this.y))
     }
     
-    // 鼠标交互 - 排斥效果
-    if (mouseX && mouseY) {
-      const dx = this.x - mouseX
-      const dy = this.y - mouseY
-      const dist = Math.sqrt(dx * dx + dy * dy)
-      
-      if (dist < 100) {
-        const force = (100 - dist) / 100
-        this.vx += (dx / dist) * force * 0.5
-        this.vy += (dy / dist) * force * 0.5
-      }
-    }
-    
     // 速度限制
-    const maxSpeed = 2
+    const maxSpeed = 2.5
     const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy)
     if (speed > maxSpeed) {
       this.vx = (this.vx / speed) * maxSpeed
@@ -117,42 +109,108 @@ class Particle {
     // 缓慢随机漂移
     this.vx += (Math.random() - 0.5) * 0.02
     this.vy += (Math.random() - 0.5) * 0.02
+    
+    // 鼠标交互 - 排斥 + 悬停检测
+    if (mouseX !== undefined && mouseY !== undefined) {
+      const dx = this.x - mouseX
+      const dy = this.y - mouseY
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      
+      // 悬停检测
+      this.isHovered = dist < this.size * 3
+      
+      // ✅ 树洞粒子：鼠标靠近时减速停下
+      if (this.type === 'treehole' && dist < MOUSE_RADIUS * 1.5) {
+        // 减速系数：距离越近，速度越慢
+        const slowdown = Math.min(1, dist / (MOUSE_RADIUS * 1.5))
+        this.vx *= slowdown * 0.95
+        this.vy *= slowdown * 0.95
+      }
+      
+      // 排斥效果 (只有情绪粒子被排斥，树洞星点固定)
+      if (this.type !== 'treehole' && dist < MOUSE_RADIUS) {
+        const force = (MOUSE_RADIUS - dist) / MOUSE_RADIUS
+        this.vx += (dx / dist) * force * 0.3
+        this.vy += (dy / dist) * force * 0.3
+      }
+    }
   }
   
   draw(ctx) {
-    // 绘制光晕
+    // 悬停时放大
+    const currentSize = this.isHovered ? this.size * 1.8 : this.size
+    
+    // 🎯 树洞星点：绘制带有外圈的标记
+    if (this.type === 'treehole') {
+      // 绘制外圈 (光晕)
+      const glowSize = currentSize * 3
+      const glowGradient = ctx.createRadialGradient(
+        this.x, this.y, 0,
+        this.x, this.y, glowSize
+      )
+      glowGradient.addColorStop(0, this.color + '40')
+      glowGradient.addColorStop(0.5, this.color + '15')
+      glowGradient.addColorStop(1, 'transparent')
+      
+      ctx.beginPath()
+      ctx.arc(this.x, this.y, glowSize, 0, Math.PI * 2)
+      ctx.fillStyle = glowGradient
+      ctx.fill()
+      
+      // 绘制外圈环
+      ctx.beginPath()
+      ctx.arc(this.x, this.y, currentSize * 1.3, 0, Math.PI * 2)
+      ctx.strokeStyle = this.color + '80'
+      ctx.lineWidth = 2
+      ctx.stroke()
+    }
+    
+    // 绘制光晕 (动态闪烁)
+    const glowSize = currentSize * 2.5
+    const glowGradient = ctx.createRadialGradient(
+      this.x, this.y, 0,
+      this.x, this.y, glowSize
+    )
+    glowGradient.addColorStop(0, this.color + '60')
+    glowGradient.addColorStop(0.5, this.color + '20')
+    glowGradient.addColorStop(1, 'transparent')
+    
+    ctx.beginPath()
+    ctx.arc(this.x, this.y, glowSize, 0, Math.PI * 2)
+    ctx.fillStyle = glowGradient
+    ctx.fill()
+    
+    // 绘制星点主体
     ctx.shadowColor = this.color
-    ctx.shadowBlur = this.glowIntensity
+    ctx.shadowBlur = this.isHovered ? 40 : this.glowIntensity
     ctx.shadowOffsetX = 0
     ctx.shadowOffsetY = 0
     
-    // 绘制粒子
+    // 渐变填充
     const gradient = ctx.createRadialGradient(
-      this.x - 2, this.y - 2, 0,
-      this.x, this.y, this.size
+      this.x - currentSize * 0.3, this.y - currentSize * 0.3, 0,
+      this.x, this.y, currentSize
     )
-    gradient.addColorStop(0, this.color)
-    gradient.addColorStop(0.7, this.color + '80')
-    gradient.addColorStop(1, this.color + '20')
+    gradient.addColorStop(0, '#FFFFFF')
+    gradient.addColorStop(0.3, this.color)
+    gradient.addColorStop(1, this.color + '80')
     
     ctx.beginPath()
-    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2)
+    ctx.arc(this.x, this.y, currentSize, 0, Math.PI * 2)
     ctx.fillStyle = gradient
     ctx.globalAlpha = this.opacity
     ctx.fill()
     
-    // 重置阴影
+    // 高光
     ctx.shadowBlur = 0
-    ctx.globalAlpha = 1
+    ctx.globalAlpha = 0.8
+    ctx.beginPath()
+    ctx.arc(this.x - currentSize * 0.25, this.y - currentSize * 0.25, currentSize * 0.3, 0, Math.PI * 2)
+    ctx.fillStyle = '#FFFFFF'
+    ctx.fill()
     
-    // 绘制表情符号
-    ctx.font = `${this.size + 8}px Arial`
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillStyle = 'white'
-    ctx.shadowColor = this.color
-    ctx.shadowBlur = 10
-    ctx.fillText(this.emoji, this.x, this.y - 1)
+    // 重置
+    ctx.globalAlpha = 1
     ctx.shadowBlur = 0
   }
 }
@@ -162,16 +220,46 @@ const initParticles = () => {
   const canvas = canvasRef.value
   if (!canvas) return
   
-  const width = window.innerWidth
-  const height = window.innerHeight
+  const width = canvas.clientWidth
+  const height = canvas.clientHeight
   
   canvas.width = width
   canvas.height = height
   
-  particles.value = []
-  for (let i = 0; i < PARTICLE_COUNT; i++) {
-    particles.value.push(new Particle(width, height))
+  // 如果没有数据，生成模拟数据用于演示
+  let data = props.particles
+  if (!data || data.length === 0) {
+    data = generateMockData(50)
   }
+  
+  // 限制粒子数量
+  if (data.length > PARTICLE_COUNT_LIMIT) {
+    data = data.slice(0, PARTICLE_COUNT_LIMIT)
+  }
+  
+  particles.value = data.map(item => new Particle(item, width, height))
+}
+
+// 生成模拟数据 (用于演示，实际应使用后端数据)
+const generateMockData = (count) => {
+  const colors = ['#FFD93D', '#6BCB77', '#FF6B6B', '#A78BFA', '#FF9F9F', '#6BCB77']
+  const emotions = ['开心', '平静', '兴奋', '低落', '焦虑', '疲惫']
+  const mockData = []
+  for (let i = 0; i < count; i++) {
+    const color = colors[Math.floor(Math.random() * colors.length)]
+    const emotion = emotions[Math.floor(Math.random() * emotions.length)]
+    // 前10个模拟树洞粒子，后40个模拟情绪粒子
+    const type = i < 10 ? 'treehole' : 'mood'
+    mockData.push({
+      color: color,
+      size: 5 + Math.random() * 15,
+      speed: 0.2 + Math.random() * 1.5,
+      treeholeId: type === 'treehole' ? i + 1 : null,
+      contentPreview: type === 'treehole' ? `模拟树洞 #${i+1}` : `${emotion} ${Math.floor(Math.random() * 5) + 1}人`,
+      type: type
+    })
+  }
+  return mockData
 }
 
 // 绘制连接线
@@ -188,25 +276,17 @@ const drawConnections = (ctx) => {
       const dist = Math.sqrt(dx * dx + dy * dy)
       
       if (dist < CONNECTION_DISTANCE) {
-        // 连接线透明度基于距离
-        const opacity = (1 - dist / CONNECTION_DISTANCE) * 0.3
-        
-        // 渐变色连接线
-        const gradient = ctx.createLinearGradient(p1.x, p1.y, p2.x, p2.y)
-        gradient.addColorStop(0, p1.color + '40')
-        gradient.addColorStop(1, p2.color + '40')
+        const opacity = (1 - dist / CONNECTION_DISTANCE) * 0.15
         
         ctx.beginPath()
         ctx.moveTo(p1.x, p1.y)
         ctx.lineTo(p2.x, p2.y)
-        ctx.strokeStyle = gradient
+        ctx.strokeStyle = `rgba(255, 255, 255, ${opacity})`
         ctx.lineWidth = 1
-        ctx.globalAlpha = opacity
         ctx.stroke()
       }
     }
   }
-  ctx.globalAlpha = 1
 }
 
 // 鼠标交互
@@ -218,11 +298,32 @@ const handleMouseMove = (e) => {
     x: e.clientX - rect.left,
     y: e.clientY - rect.top
   }
+  
+  // 更新悬停粒子
+  const mx = mousePos.value.x
+  const my = mousePos.value.y
+  let found = null
+  
+  particles.value.forEach(p => {
+    if (p.isHovered) {
+      found = p
+    }
+  })
+  
+  if (found) {
+    hoveredParticle.value = found
+    tooltipStyle.value = {
+      left: found.x + 20 + 'px',
+      top: found.y - 20 + 'px'
+    }
+  } else {
+    hoveredParticle.value = null
+  }
 }
 
 const handleMouseLeave = () => {
   mousePos.value = null
-  selectedParticle.value = null
+  hoveredParticle.value = null
 }
 
 const handleClick = (e) => {
@@ -239,20 +340,15 @@ const handleClick = (e) => {
       Math.pow(clickX - p.x, 2) + 
       Math.pow(clickY - p.y, 2)
     )
-    if (dist < minDist) {
+    if (dist < minDist && p.treeholeId) {
       minDist = dist
       nearest = p
     }
   })
   
   if (nearest) {
-    selectedParticle.value = nearest
-    tooltipStyle.value = {
-      left: nearest.x + 20 + 'px',
-      top: nearest.y - 40 + 'px'
-    }
-  } else {
-    selectedParticle.value = null
+    // 跳转到树洞详情
+    router.push('/treeholes/' + nearest.treeholeId)
   }
 }
 
@@ -265,13 +361,24 @@ const animate = () => {
   const ctx = canvas.getContext('2d')
   ctx.clearRect(0, 0, canvas.width, canvas.height)
   
-  // 绘制背景渐变
+  // 绘制背景
   const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height)
   gradient.addColorStop(0, '#0a0a1a')
   gradient.addColorStop(0.5, '#1a1a3e')
   gradient.addColorStop(1, '#0f0f2a')
   ctx.fillStyle = gradient
   ctx.fillRect(0, 0, canvas.width, canvas.height)
+  
+  // 绘制星空背景 (小点)
+  for (let i = 0; i < 50; i++) {
+    const x = (i * 137.5) % canvas.width
+    const y = (i * 97.3) % canvas.height
+    const size = 0.5 + (i % 3) * 0.5
+    ctx.beginPath()
+    ctx.arc(x, y, size, 0, Math.PI * 2)
+    ctx.fillStyle = `rgba(255,255,255,${0.1 + (i % 5) * 0.05})`
+    ctx.fill()
+  }
   
   // 更新和绘制粒子
   particles.value.forEach(p => {
@@ -282,11 +389,6 @@ const animate = () => {
   // 绘制连接线
   drawConnections(ctx)
   
-  // 更新在线人数（模拟变化）
-  if (Math.random() < 0.01) {
-    onlineCount.value = 150 + Math.floor(Math.random() * 30)
-  }
-  
   animationId = requestAnimationFrame(animate)
 }
 
@@ -294,6 +396,13 @@ const animate = () => {
 const handleResize = () => {
   initParticles()
 }
+
+// 监听 props 变化
+watch(() => props.particles, (newVal) => {
+  if (newVal && newVal.length > 0) {
+    initParticles()
+  }
+}, { deep: true })
 
 onMounted(() => {
   initParticles()
@@ -310,6 +419,9 @@ onUnmounted(() => {
     cancelAnimationFrame(animationId)
   }
   window.removeEventListener('resize', handleResize)
+  canvasRef.value.removeEventListener('mousemove', handleMouseMove)
+  canvasRef.value.removeEventListener('mouseleave', handleMouseLeave)
+  canvasRef.value.removeEventListener('click', handleClick)
 })
 </script>
 
@@ -319,7 +431,7 @@ onUnmounted(() => {
   width: 100%;
   height: 100vh;
   overflow: hidden;
-  cursor: pointer;
+  cursor: default;
   
   .particle-canvas {
     display: block;
@@ -380,49 +492,44 @@ onUnmounted(() => {
     position: absolute;
     background: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(10px);
-    padding: 16px;
-    border-radius: 16px;
+    padding: 12px 16px;
+    border-radius: 12px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
     pointer-events: none;
     z-index: 20;
-    min-width: 140px;
-    animation: fadeIn 0.3s;
+    max-width: 220px;
+    animation: fadeIn 0.2s ease;
     
-    .emotion-icon {
-      font-size: 36px;
-      text-align: center;
-      margin-bottom: 8px;
-    }
-    
-    .emotion-name {
-      font-size: 16px;
-      font-weight: 600;
-      text-align: center;
-      color: #333;
-      margin-bottom: 4px;
-    }
-    
-    .user-info {
-      font-size: 12px;
-      text-align: center;
-      color: #999;
+    .tooltip-content {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      
+      .emotion-color {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      
+      .tooltip-text {
+        font-size: 13px;
+        color: #333;
+        line-height: 1.4;
+      }
     }
   }
 }
 
 @keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 @keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(5px);
   }
   to {
     opacity: 1;

@@ -8,7 +8,13 @@ const routes = [
   { path: '/diary', name: 'Diary', component: () => import('@/views/DiaryView.vue') },
   { path: '/dashboard', name: 'Dashboard', component: () => import('@/views/DashboardView.vue') },
   { path: '/universe', name: 'Universe', component: () => import('@/views/UniverseView.vue') },
-  { path: '/profile', name: 'Profile', component: () => import('@/views/ProfileView.vue') }
+  { path: '/profile', name: 'Profile', component: () => import('@/views/ProfileView.vue') },
+  // ✅ 新增：树洞详情独立页面
+  { 
+    path: '/treeholes/:id', 
+    name: 'TreeholeDetail', 
+    component: () => import('@/views/TreeholeDetailView.vue') 
+  }
 ]
 
 const router = createRouter({
@@ -16,20 +22,16 @@ const router = createRouter({
   routes
 })
 
-// ✅ 新版路由守卫 - 使用 userStore.isLoggedIn
+// 路由守卫
 router.beforeEach((to, from) => {
   const userStore = useUserStore()
   const publicPages = ['/login', '/register', '/universe']
   
-  // 使用 userStore 的 isLoggedIn
   const isLoggedIn = userStore.isLoggedIn
-  
-  console.log('路由守卫 - 路径:', to.path, '登录状态:', isLoggedIn)
   
   if (!publicPages.includes(to.path) && !isLoggedIn) {
     return '/login'
   }
-  // 已登录用户访问登录页，跳转首页
   if ((to.path === '/login' || to.path === '/register') && isLoggedIn) {
     return '/'
   }
