@@ -1,7 +1,13 @@
 <template>
   <div class="universe-view">
     <!-- 粒子流背景 -->
-    <ParticleFlow :particles="particles" />
+    <StarParticleFlow 
+      :particles="particles" 
+      :emotionStats="emotionStats"
+      :treeholes="posts"
+      @openTreehole="handleOpenTreehole"
+    />
+    
     <!-- 顶部操作栏（居中） -->
     <div class="action-bar">
       <h2>🌌 情绪宇宙</h2>
@@ -168,7 +174,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Edit } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import ParticleFlow from '@/components/business/ParticleFlow.vue'
+import StarParticleFlow from '@/components/business/StarParticleFlow.vue'
 import request from '@/utils/request'
 import { useUserStore } from '@/stores/userStore'
 
@@ -179,6 +185,9 @@ const showDetail = ref(false)
 const currentPost = ref(null)
 const isTreeholeOpen = ref(false)
 const loading = ref(false)
+
+// ========== 情绪统计（新增） ==========
+const emotionStats = ref({})
 
 // ========== 拖拽调整高度 ==========
 const panelHeight = ref(400)  // 默认高度 400px
@@ -246,14 +255,27 @@ const getEmotionColor = (emotion) => {
   return colors[emotion] || '#999'
 }
 
-// ========== 获取树洞列表 ==========
+// ========== 获取情绪统计（新增） ==========
+const fetchEmotionStats = async () => {
+  try {
+    const res = await request.get('/emotion/stats/24h')
+    emotionStats.value = res.data || {}
+  } catch (error) {
+    console.error('获取情绪统计失败', error)
+    // 使用默认数据
+    emotionStats.value = {
+      '开心': 20, '平静': 50, '愤怒': 10,
+      '悲伤': 10, '焦虑': 5, '疲惫': 5
+    }
+  }
+}
+
+// ========== 获取树洞列表（修改为 /all 接口） ==========
 const fetchTreeholes = async () => {
   loading.value = true
   try {
-    const res = await request.get('/treeholes', {
-      params: { page: 1, size: 50, sort: 'new' }
-    })
-    posts.value = (res.data?.content || res.data || []).map(item => ({
+    const res = await request.get('/treeholes/all')
+    posts.value = (res.data || []).map(item => ({
       id: item.id,
       anonymousId: item.anonymousId,
       content: item.content,
@@ -262,10 +284,13 @@ const fetchTreeholes = async () => {
       likes: item.likeCount || 0,
       comments: item.commentCount || 0,
       liked: false,
-      tagId: item.tagId
+      tagId: item.tagId,
+      position: item.position || { x: 0, y: 0, z: 0 } // 如果后端返回位置
     }))
   } catch (error) {
     console.error('获取树洞失败', error)
+    // 使用默认数据
+    posts.value = generateMockData(20)
   } finally {
     loading.value = false
   }
@@ -288,6 +313,31 @@ const formatTime = (dateStr) => {
 const displayPosts = computed(() => {
   return [...posts.value].sort((a, b) => b.id - a.id)
 })
+
+// ========== 生成模拟数据 ==========
+const generateMockData = (count) => {
+  const emotions = ['😊', '😌', '😫', '😰', '🤩', '😔']
+  const emotionNames = ['开心', '平静', '疲惫', '焦虑', '兴奋', '悲伤']
+  const data = []
+  for (let i = 0; i < count; i++) {
+    const emotion = emotions[Math.floor(Math.random() * emotions.length)]
+    const emotionName = emotionNames[emotions.indexOf(emotion)]
+    data.push({
+      id: i + 1,
+      anonymousId: `匿名星${String(i + 1).padStart(4, '0')}`,
+      content: `这是模拟树洞内容 #${i + 1}，这里有一些心情分享...`,
+      emotion: emotion,
+      time: formatTime(new Date().toISOString()),
+      likes: Math.floor(Math.random() * 50),
+      comments: Math.floor(Math.random() * 10),
+      liked: false,
+      tagId: i + 1,
+      tagEmoji: emotion,
+      tagName: emotionName
+    })
+  }
+  return data
+}
 
 // ========== 发布树洞 ==========
 const newPost = ref({
@@ -318,6 +368,8 @@ const publishPost = async () => {
     newPost.value = { content: '', emotion: '😊' }
     await fetchTreeholes()
     isTreeholeOpen.value = true
+    // 刷新情绪统计
+    await fetchEmotionStats()
   } catch (error) {
     console.error('发布失败', error)
     ElMessage.error('发布失败，请重试')
@@ -408,6 +460,10 @@ onMounted(() => {
     panelHeight.value = parseInt(savedHeight)
   }
   window.addEventListener('resize', updateMaxHeight)
+  
+  // 获取数据
+  fetchEmotionStats()
+  fetchTreeholes()
 })
 
 onUnmounted(() => {
@@ -418,37 +474,26 @@ onUnmounted(() => {
 
 const particles = ref([])
 
-// 获取粒子数据
+// 获取粒子数据（兼容原逻辑）
 const fetchParticles = async () => {
   try {
     const res = await request.get('/emotion-universe/particles')
     particles.value = res.data || []
   } catch (error) {
     console.error('获取粒子数据失败', error)
-    // 如果失败，使用模拟数据
     particles.value = generateMockData(80)
   }
 }
 
-// 生成模拟数据 (用于演示)
-const generateMockData = (count) => {
-  const colors = ['#FFD93D', '#6BCB77', '#FF6B6B', '#A78BFA', '#FF9F9F']
-  const data = []
-  for (let i = 0; i < count; i++) {
-    data.push({
-      color: colors[Math.floor(Math.random() * colors.length)],
-      size: 5 + Math.random() * 15,
-      speed: 0.2 + Math.random() * 1.5,
-      treeholeId: i + 1,
-      contentPreview: `模拟情绪 #${i+1}`
-    })
+// ✅ 新增：处理打开树洞抽屉
+const handleOpenTreehole = (treeholeId) => {
+  const post = posts.value.find(p => p.id === treeholeId)
+  if (post) {
+    currentPost.value = post
+    showDetail.value = true
+    fetchComments(treeholeId)
   }
-  return data
 }
-
-onMounted(() => {
-  fetchParticles()
-})
 </script>
 
 <style scoped lang="scss">
