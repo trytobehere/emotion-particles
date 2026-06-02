@@ -11,26 +11,14 @@
       <EmotionSprite />
     </div>
     
-    <div class="quick-actions">
-      <button class="action-btn primary" @click="goToDiary">
-        <span class="btn-icon">📝</span>
-        <span>写日记</span>
-      </button>
-      <button class="action-btn" @click="goToDashboard">
-        <span class="btn-icon">📊</span>
-        <span>看分析</span>
-      </button>
-    </div>
+    <!-- 右下角导航栏 - 由 App.vue 统一管理，这里留空 -->
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
 import EmotionSprite from '@/components/business/EmotionSprite.vue'
 import bgImage from '@/assets/1.png'
-
-const router = useRouter()
 
 const bgStyle = {
   backgroundImage: `url(${bgImage})`,
@@ -54,9 +42,6 @@ const currentDate = computed(() => {
     weekday: 'long'
   })
 })
-
-const goToDiary = () => router.push('/diary')
-const goToDashboard = () => router.push('/dashboard')
 </script>
 
 <style scoped lang="scss">
@@ -94,57 +79,6 @@ const goToDashboard = () => router.push('/dashboard')
     flex: 1;
     min-height: 0;
     margin-bottom: 20px;
-  }
-  
-  .quick-actions {
-    display: flex;
-    gap: 14px;
-    justify-content: center;
-    padding-bottom: 10px;
-    
-    .action-btn {
-      flex: 1;
-      max-width: 160px;
-      height: 54px;
-      border: none;
-      border-radius: 30px;
-      font-size: 16px;
-      font-weight: 500;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      background: rgba(255, 255, 255, 0.1);
-      backdrop-filter: blur(10px);
-      color: white;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      transition: all 0.3s ease;
-      
-      .btn-icon {
-        font-size: 20px;
-      }
-      
-      &.primary {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border: none;
-        box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
-      }
-      
-      &:hover {
-        transform: translateY(-2px);
-        background: rgba(255, 255, 255, 0.15);
-        
-        &.primary {
-          background: linear-gradient(135deg, #7b90f0 0%, #8b5eb8 100%);
-          box-shadow: 0 12px 25px rgba(102, 126, 234, 0.4);
-        }
-      }
-      
-      &:active {
-        transform: translateY(0);
-      }
-    }
   }
 }
 </style>

@@ -3,11 +3,17 @@ import { ref } from 'vue'
 import request from '@/utils/request'
 
 export const useSpiritStore = defineStore('spirit', () => {
+  // 情绪相关
   const currentEmotion = ref(null)
   const todayRecords = ref([])
-  const spiritState = ref(null)
   
-  // 获取精灵状态
+  // 精灵状态相关
+  const spiritState = ref(null)
+  const spiritType = ref('water')
+  const spiritColor = ref('#4A9EFF')
+  const followMode = ref('container')
+  
+  // ========== 情绪相关 ==========
   const fetchSpiritState = async () => {
     try {
       const res = await request.get('/mood-records/today')
@@ -27,18 +33,14 @@ export const useSpiritStore = defineStore('spirit', () => {
     }
   }
   
-  // 设置当前情绪（并同步到后端）
   const setCurrentEmotion = async (emotion) => {
     currentEmotion.value = emotion
-    
-    // 调用后端保存情绪记录
     try {
       await request.post('/mood-records', {
         tagId: emotion.id,
         moodLevel: emotion.value || emotion.moodLevel || 3,
         note: emotion.label || ''
       })
-      // 刷新今日记录
       await fetchSpiritState()
     } catch (error) {
       console.error('保存情绪失败', error)
@@ -46,7 +48,6 @@ export const useSpiritStore = defineStore('spirit', () => {
     }
   }
   
-  // 快速记录情绪
   const quickRecord = async (tagId, moodLevel, note = '') => {
     try {
       const res = await request.post('/mood-records', {
@@ -62,7 +63,6 @@ export const useSpiritStore = defineStore('spirit', () => {
     }
   }
   
-  // 获取情绪记录列表
   const fetchRecords = async (days = 7) => {
     try {
       const res = await request.get('/mood-records', {
@@ -75,13 +75,54 @@ export const useSpiritStore = defineStore('spirit', () => {
     }
   }
   
+  // ========== 精灵配置相关 ==========
+  const getSpiritState = async () => {
+    try {
+      const res = await request.get('/spirit/state')
+      if (res.code === 200 && res.data) {
+        spiritState.value = res.data
+        spiritType.value = res.data.spiritType || 'water'
+        spiritColor.value = res.data.spiritColor || '#4A9EFF'
+        followMode.value = res.data.followMode || 'container'
+        return res.data
+      }
+    } catch (error) {
+      console.error('获取精灵配置失败', error)
+    }
+    return null
+  }
+  
+  const updateSpiritState = async (data) => {
+    try {
+      const res = await request.put('/spirit/state', data)
+      if (res.code === 200) {
+        spiritState.value = res.data
+        if (data.spiritType) spiritType.value = data.spiritType
+        if (data.spiritColor) spiritColor.value = data.spiritColor
+        if (data.followMode) followMode.value = data.followMode
+        return res.data
+      }
+    } catch (error) {
+      console.error('更新精灵配置失败', error)
+    }
+    return null
+  }
+  
   return {
+    // 情绪相关
     currentEmotion,
     todayRecords,
-    spiritState,
     fetchSpiritState,
     setCurrentEmotion,
     quickRecord,
-    fetchRecords
+    fetchRecords,
+    
+    // 精灵配置相关
+    spiritState,
+    spiritType,
+    spiritColor,
+    followMode,
+    getSpiritState,
+    updateSpiritState
   }
 })

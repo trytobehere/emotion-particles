@@ -1,942 +1,660 @@
 <template>
   <div class="emotion-sprite-container">
-    <canvas 
-      ref="canvasRef" 
-      :width="canvasWidth" 
-      :height="canvasHeight"
-      @mousedown="handleMouseDown"
-      @mousemove="handleMouseMove"
-      @mouseup="handleMouseUp"
-      @mouseleave="handleMouseUp"
-      @click="handleClick"
-    ></canvas>
+    <StarBackground :color="currentColor" :isActive="true" />
     
-    <!-- 精灵信息 -->
-    <div class="sprite-info" v-if="currentTemplate">
-      <span class="sprite-name">{{ currentTemplate.name }}</span>
-      <span class="usage-count">{{ currentTemplate.usageCount }}人使用</span>
-    </div>
-    
-    <!-- 情绪选择器 -->
+    <!-- 容器 - 可拖动位置 -->
     <div 
-      v-if="showEmotionPicker" 
-      class="emotion-picker"
-      :style="{ left: pickerPosition.x + 'px', top: pickerPosition.y + 'px' }"
+      class="center-wrapper" 
+      :style="{
+        left: containerPos.x + '%',
+        top: containerPos.y + '%',
+        width: containerSize + 'px',
+        height: containerSize + 'px'
+      }"
+      @mousedown="startDrag"
+      @touchstart="startDrag"
+      v-if="!isFullScreen"
     >
-      <div class="picker-header">
-        <span>选择情绪精灵</span>
-        <el-button link @click="showSpriteLibrary = true">
-          <el-icon><Plus /></el-icon>
-          创建新精灵
-        </el-button>
-      </div>
+      <SpiritContainer 
+        :size="containerSize" 
+        :color="currentColor"
+        :currentEmotion="currentEmotion"
+        :shape="currentSpirit === 'piano' ? 'rectangle' : 'circle'"
+      >
+        <component 
+          :is="currentSpiritComponent"
+          :key="containerSize"
+          :width="containerSize"
+          :height="containerSize"
+          :color="currentColor"
+          :emotionId="currentEmotion?.emotionTagId || 2"
+          :isActive="true"
+          :followMode="followMode"
+        />
+      </SpiritContainer>
+    </div>
+    
+    <!-- 全屏模式 -->
+    <div 
+      v-else
+      class="fullscreen-wrapper"
+    >
+      <SpiritContainer 
+        :size="containerSize" 
+        :color="currentColor"
+        :currentEmotion="currentEmotion"
+        shape="fullscreen"
+      >
+        <component 
+          :is="currentSpiritComponent"
+          :key="'fullscreen'"
+          :width="screenWidth"
+          :height="screenHeight"
+          :color="currentColor"
+          :emotionId="currentEmotion?.emotionTagId || 2"
+          :isActive="true"
+          :followMode="followMode"
+        />
+      </SpiritContainer>
+    </div>
+    
+    <!-- 控制面板 - 右下角浮动 -->
+    <div class="floating-controls">
+      <!-- 切换按钮 -->
+      <button class="toggle-btn" @click="togglePanel">
+        <span v-if="panelOpen">✕</span>
+        <span v-else>⚙</span>
+      </button>
       
-      <div class="template-grid">
-        <div 
-          v-for="template in allTemplates" 
-          :key="template.id"
-          class="template-item"
-          :class="{ active: currentTemplate?.id === template.id }"
-          :style="{ borderColor: template.color }"
-          @click="selectTemplate(template)"
-        >
-          <span class="template-emoji">{{ template.emoji }}</span>
-          <span class="template-name">{{ template.name }}</span>
-          <span class="template-emotion">{{ template.emotion }}</span>
+      <!-- 控制面板内容 -->
+      <div class="control-panel" v-show="panelOpen">
+        <div class="panel-content">
+          <div class="spirit-selector">
+            <div 
+              v-for="spirit in spiritList" 
+              :key="spirit.id"
+              class="spirit-item"
+              :class="{ active: currentSpirit === spirit.id }"
+              @click="selectSpirit(spirit.id)"
+            >
+              <span class="icon">{{ spirit.icon }}</span>
+              <span class="name">{{ spirit.name }}</span>
+              <span class="emotion">{{ spirit.emotion }}</span>
+            </div>
+          </div>
+          
+          <div class="controls-row">
+            <div class="size-control">
+              <label>大小</label>
+              <el-slider 
+                v-model="containerSize" 
+                :min="100" 
+                :max="sliderMax" 
+                :step="10"
+                style="width: 100px"
+              />
+            </div>
+            
+            <div class="color-control">
+              <label>颜色</label>
+              <el-color-picker v-model="currentColor" size="small" />
+            </div>
+            
+            <div class="follow-control">
+              <label>跟随</label>
+              <el-radio-group v-model="followMode" size="small">
+                <el-radio-button value="container">容器</el-radio-button>
+                <el-radio-button value="full">全屏</el-radio-button>
+              </el-radio-group>
+            </div>
+            
+            <el-button size="small" @click="toggleFullScreen">
+              {{ isFullScreen ? '退出全屏' : '全屏' }}
+            </el-button>
+            
+            <el-button size="small" @click="resetToDefault">重置</el-button>
+          </div>
+          
+          <div class="emotion-custom" v-if="currentEmotion">
+            <label>修改情绪：</label>
+            <el-select v-model="customEmotionId" placeholder="选择情绪" size="small" @change="updateEmotion">
+              <el-option
+                v-for="tag in emotionTags"
+                :key="tag.id"
+                :label="tag.emoji + ' ' + tag.name"
+                :value="tag.id"
+              />
+            </el-select>
+          </div>
         </div>
       </div>
     </div>
-    
-    <!-- 精灵库对话框 -->
-    <el-dialog 
-      v-model="showSpriteLibrary" 
-      title="精灵工坊 - 创建你的情绪精灵" 
-      width="90%"
-      :close-on-click-modal="false"
-    >
-      <div class="sprite-library">
-        <!-- 步骤1：选择基础形态 -->
-        <div class="step">
-          <div class="step-title">1. 选择精灵形态</div>
-          <div class="shape-grid">
-            <div 
-              v-for="shape in shapes" 
-              :key="shape.id"
-              class="shape-item"
-              :class="{ active: newTemplate.appearance.shape === shape.id }"
-              @click="newTemplate.appearance.shape = shape.id"
-            >
-              <div class="shape-preview" :style="{ background: newTemplate.appearance.primaryColor }">
-                {{ shape.icon }}
-              </div>
-              <span>{{ shape.name }}</span>
-            </div>
-          </div>
-        </div>
-        
-        <!-- 步骤2：选择动画效果 -->
-        <div class="step">
-          <div class="step-title">2. 选择动画效果</div>
-          <div class="animation-grid">
-            <div 
-              v-for="anim in animations" 
-              :key="anim.id"
-              class="animation-item"
-              :class="{ active: newTemplate.animation.type === anim.id }"
-              @click="newTemplate.animation.type = anim.id"
-            >
-              <span class="anim-icon">{{ anim.icon }}</span>
-              <span>{{ anim.name }}</span>
-            </div>
-          </div>
-        </div>
-        
-        <!-- 步骤3：设置颜色 -->
-        <div class="step">
-          <div class="step-title">3. 设置颜色</div>
-          <div class="color-row">
-            <span>主色调</span>
-            <el-color-picker v-model="newTemplate.appearance.primaryColor" />
-          </div>
-          <div class="color-row">
-            <span>副色调</span>
-            <el-color-picker v-model="newTemplate.appearance.secondaryColor" />
-          </div>
-        </div>
-        
-        <!-- 步骤4：添加配饰 -->
-        <div class="step">
-          <div class="step-title">4. 添加配饰</div>
-          <div class="accessory-grid">
-            <div 
-              v-for="acc in accessories" 
-              :key="acc.id"
-              class="accessory-item"
-              :class="{ active: newTemplate.appearance.accessories.includes(acc.id) }"
-              @click="toggleAccessory(acc.id)"
-            >
-              <span>{{ acc.icon }}</span>
-              <span>{{ acc.name }}</span>
-            </div>
-          </div>
-        </div>
-        
-        <!-- 步骤5：基本信息 -->
-        <div class="step">
-          <div class="step-title">5. 精灵信息</div>
-          <el-input 
-            v-model="newTemplate.name" 
-            placeholder="精灵名称，如：快乐小狗"
-            size="large"
-            style="margin-bottom: 12px;"
-          />
-          <el-input 
-            v-model="newTemplate.emotion" 
-            placeholder="对应情绪，如：开心"
-            size="large"
-            style="margin-bottom: 12px;"
-          />
-          <el-input 
-            v-model="newTemplate.emoji" 
-            placeholder="表情符号，如：😊"
-            maxlength="2"
-            size="large"
-            style="margin-bottom: 12px;"
-          />
-          <div class="value-slider">
-            <span>情绪值: {{ newTemplate.value }}</span>
-            <el-slider v-model="newTemplate.value" :min="1" :max="5" show-stops />
-          </div>
-          <el-input 
-            v-model="newTemplate.description" 
-            type="textarea"
-            placeholder="描述一下这个精灵..."
-            :rows="2"
-          />
-        </div>
-        
-        <!-- 预览 -->
-        <div class="preview-section">
-          <div class="preview-title">预览效果</div>
-          <div class="preview-canvas-wrapper">
-            <canvas ref="previewCanvasRef" width="200" height="200"></canvas>
-          </div>
-        </div>
-      </div>
-      
-      <template #footer>
-        <el-button @click="showSpriteLibrary = false">取消</el-button>
-        <el-button type="primary" @click="createNewTemplate">创建精灵</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { Plus } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
-import { useSpriteStore } from '@/stores/spriteStore'
+import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue'
+import StarBackground from '../spirits/StarBackground.vue'
+import SpiritContainer from '../spirits/SpiritContainer.vue'
+import FireSpirit from '../spirits/FireSpirit.vue'
+import WaterSpirit from '../spirits/WaterSpirit.vue'
+import BubbleSpirit from '../spirits/BubbleSpirit.vue'
+import PianoSpirit from '../spirits/PianoSpirit.vue'
+import PlaneSpirit from '../spirits/PlaneSpirit.vue'
+import SparkleSpirit from '../spirits/SparkleSpirit.vue'
+import { useSpiritStore } from '@/stores/spiritStore'
+import request from '@/utils/request'
 
-const spriteStore = useSpriteStore()
+const spiritStore = useSpiritStore()
 
-const canvasRef = ref(null)
-const previewCanvasRef = ref(null)
-const canvasWidth = ref(400)
-const canvasHeight = ref(400)
+// 精灵配置
+const spiritList = [
+  { id: 'fire', name: '火焰', emotion: '愤怒', icon: '🔥', color: '#FF6B35', emotionTagId: 9 },
+  { id: 'water', name: '水滴', emotion: '平静', icon: '💧', color: '#4A9EFF', emotionTagId: 2 },
+  { id: 'piano', name: '钢琴', emotion: '激情', icon: '🎹', color: '#FFD700', emotionTagId: 10 },
+  { id: 'bubble', name: '气泡', emotion: '悲伤', icon: '🫧', color: '#9B59B6', emotionTagId: 6 },
+  { id: 'plane', name: '纸飞机', emotion: '懊恼', icon: '✈️', color: '#5D8A9C', emotionTagId: 11 },
+  { id: 'sparkle', name: '烟花', emotion: '开心', icon: '🎆', color: '#FF6B6B', emotionTagId: 1 }
+]
 
-// 状态
-const showEmotionPicker = ref(false)
-const showSpriteLibrary = ref(false)
-const pickerPosition = ref({ x: 0, y: 0 })
-const currentTemplate = ref(spriteStore.currentTemplate)
+const currentSpirit = ref('water')
+const currentColor = ref('#4A9EFF')
+const followMode = ref('container')
+const customEmotionId = ref(null)
+const customEmotionName = ref('') // ✅ 新增：存储情绪名称
 
-// 位置和拖拽
-const spritePos = ref({ x: 200, y: 200 })
-const isDragging = ref(false)
-const dragOffset = ref({ x: 0, y: 0 })
+// 容器状态
+const containerSize = ref(280)
+const containerPos = ref({ x: 50, y: 50 })
 
-// 动画参数
-let time = 0
-let animationId = null
+// 屏幕尺寸
+const screenWidth = ref(window.innerWidth)
+const screenHeight = ref(window.innerHeight)
 
-// 所有模板
-const allTemplates = computed(() => spriteStore.getAllTemplates())
-
-// 创建新模板的表单
-const newTemplate = ref({
-  name: '',
-  emotion: '',
-  emoji: '😊',
-  color: '#FFD93D',
-  value: 3,
-  description: '',
-  animation: {
-    type: 'bounce',
-    speed: 1.0,
-    intensity: 1.0
-  },
-  appearance: {
-    shape: 'flame',
-    primaryColor: '#FFD93D',
-    secondaryColor: '#FF9F3D',
-    size: 1.0,
-    hasFace: true,
-    accessories: []
-  }
+// 滑块最大值
+const sliderMax = computed(() => {
+  return Math.min(screenWidth.value, screenHeight.value)
 })
 
-// 形态选项
-const shapes = [
-  { id: 'flame', name: '火苗', icon: '🔥' },
-  { id: 'droplet', name: '水滴', icon: '💧' },
-  { id: 'cloud', name: '云朵', icon: '☁️' },
-  { id: 'star', name: '星星', icon: '⭐' },
-  { id: 'heart', name: '爱心', icon: '❤️' },
-  { id: 'leaf', name: '叶子', icon: '🍃' }
-]
+// 最大尺寸 - 允许全屏
+const maxSize = computed(() => {
+  return Math.min(screenWidth.value, screenHeight.value) * 1.0
+})
 
-// 动画选项
-const animations = [
-  { id: 'bounce', name: '弹跳', icon: '⬆️⬇️' },
-  { id: 'float', name: '漂浮', icon: '🎈' },
-  { id: 'spin', name: '旋转', icon: '🔄' },
-  { id: 'pulse', name: '脉动', icon: '💓' },
-  { id: 'shake', name: '摇摆', icon: '↔️' },
-  { id: 'wave', name: '波浪', icon: '🌊' }
-]
+// 是否全屏
+const isFullScreen = computed(() => {
+  return containerSize.value >= Math.min(screenWidth.value, screenHeight.value) * 0.95
+})
 
-// 配饰选项
-const accessories = [
-  { id: 'sparkle', name: '闪光', icon: '✨' },
-  { id: 'glow', name: '光晕', icon: '💫' },
-  { id: 'zzz', name: '瞌睡', icon: '💤' },
-  { id: 'sweat', name: '汗滴', icon: '💦' },
-  { id: 'rain', name: '小雨', icon: '🌧️' },
-  { id: 'crown', name: '王冠', icon: '👑' }
-]
+// 情绪标签列表（从后端获取）
+const emotionTags = ref([])
 
-// 切换配饰
-const toggleAccessory = (accId) => {
-  const index = newTemplate.value.appearance.accessories.indexOf(accId)
-  if (index > -1) {
-    newTemplate.value.appearance.accessories.splice(index, 1)
+// 面板开关状态
+const panelOpen = ref(true)
+
+// 拖拽状态
+const isDragging = ref(false)
+let dragStartX = 0
+let dragStartY = 0
+let dragStartPos = { x: 50, y: 50 }
+
+// 当前精灵组件
+const currentSpiritComponent = computed(() => {
+  const map = {
+    fire: FireSpirit,
+    water: WaterSpirit,
+    bubble: BubbleSpirit,
+    piano: PianoSpirit,
+    plane: PlaneSpirit,
+    sparkle: SparkleSpirit
+  }
+  return map[currentSpirit.value] || WaterSpirit
+})
+
+// 当前情绪信息 - 优先使用存储的情绪名称
+const currentEmotion = computed(() => {
+  const config = spiritList.find(s => s.id === currentSpirit.value)
+  if (!config) return null
+  
+  // ✅ 优先使用存储的情绪名称
+  if (customEmotionName.value) {
+    return {
+      ...config,
+      emotion: customEmotionName.value,
+      emotionTagId: customEmotionId.value || config.emotionTagId
+    }
+  }
+  
+  return config
+})
+
+// 切换面板
+const togglePanel = () => {
+  panelOpen.value = !panelOpen.value
+}
+
+// 获取情绪标签列表
+const fetchEmotionTags = async () => {
+  try {
+    const res = await request.get('/emotion-tags')
+    if (res.code === 200) {
+      emotionTags.value = res.data.filter(tag => 
+        isNaN(parseInt(tag.name)) && tag.isActive === 1
+      )
+    }
+  } catch (error) {
+    console.error('获取情绪标签失败:', error)
+  }
+}
+
+// 选择精灵 - 保留每个精灵的自定义情绪
+const selectSpirit = async (id) => {
+  currentSpirit.value = id
+  const config = spiritList.find(s => s.id === id)
+  if (config) {
+    // ✅ 不要重置颜色，而是从 localStorage 恢复
+    const savedColor = localStorage.getItem(`spiritColor_${id}`)
+    if (savedColor) {
+      currentColor.value = savedColor
+    } else {
+      currentColor.value = config.color
+    }
+    
+    // 恢复自定义情绪
+    const savedEmotion = localStorage.getItem(`customEmotion_${id}`)
+    if (savedEmotion) {
+      customEmotionId.value = parseInt(savedEmotion)
+      customEmotionName.value = localStorage.getItem(`customEmotionName_${id}`) || ''
+      config.emotionTagId = customEmotionId.value
+      config.emotion = customEmotionName.value || config.emotion
+    } else {
+      customEmotionId.value = config.emotionTagId
+      customEmotionName.value = config.emotion
+    }
+  }
+  saveToLocal()
+  await saveToBackend()
+  await loadFromBackend()
+}
+
+// 更新情绪 - 为当前精灵保存自定义情绪
+const updateEmotion = async (newTagId) => {
+  console.log('updateEmotion 被调用，newTagId:', newTagId)
+  console.log('当前颜色:', currentColor.value)
+  
+  if (!newTagId) return
+  
+  const config = spiritList.find(s => s.id === currentSpirit.value)
+  if (config) {
+    config.emotionTagId = newTagId
+    const tag = emotionTags.value.find(t => t.id === newTagId)
+    if (tag) {
+      config.emotion = tag.name
+      customEmotionName.value = tag.name
+    }
+    customEmotionId.value = newTagId
+    
+    // ✅ 保存当前颜色（不是默认颜色）
+    const currentColorToSave = currentColor.value
+    localStorage.setItem(`spiritColor_${currentSpirit.value}`, currentColorToSave)
+    
+    // 保存情绪
+    localStorage.setItem(`customEmotion_${currentSpirit.value}`, newTagId.toString())
+    localStorage.setItem(`customEmotionName_${currentSpirit.value}`, customEmotionName.value)
+    
+    await saveToBackend()
+    await loadFromBackend()
+  }
+}
+
+// 重置颜色
+const resetToDefault = () => {
+  const config = spiritList.find(s => s.id === currentSpirit.value)
+  if (config) {
+    currentColor.value = config.color
+  }
+}
+
+// 全屏切换
+const toggleFullScreen = () => {
+  if (isFullScreen.value) {
+    // 退出全屏
+    containerSize.value = Math.min(screenWidth.value, screenHeight.value) * 0.8
   } else {
-    newTemplate.value.appearance.accessories.push(accId)
+    // 进入全屏
+    containerSize.value = Math.min(screenWidth.value, screenHeight.value)
   }
-}
-
-// 绘制精灵
-const drawSprite = (ctx, template, pos, size = 1.0) => {
-  const app = template.appearance
-  const anim = template.animation
-  
-  // 计算动画偏移
-  let offsetX = 0, offsetY = 0
-  let scale = app.size * size
-  let rotation = 0
-  
-  switch (anim.type) {
-    case 'bounce':
-      offsetY = Math.abs(Math.sin(time * anim.speed * 3)) * 15 * anim.intensity
-      scale *= 1 + Math.sin(time * anim.speed * 2) * 0.1
-      break
-    case 'float':
-      offsetY = Math.sin(time * anim.speed) * 10 * anim.intensity
-      offsetX = Math.cos(time * anim.speed * 0.7) * 5 * anim.intensity
-      break
-    case 'spin':
-      rotation = time * anim.speed * anim.intensity
-      break
-    case 'pulse':
-      scale *= 1 + Math.sin(time * anim.speed * 2) * 0.15 * anim.intensity
-      break
-    case 'shake':
-      offsetX = Math.sin(time * anim.speed * 5) * 8 * anim.intensity
-      break
-    case 'wave':
-      offsetX = Math.sin(time * anim.speed) * 12 * anim.intensity
-      offsetY = Math.cos(time * anim.speed * 1.3) * 6 * anim.intensity
-      break
-  }
-  
-  const x = pos.x + offsetX
-  const y = pos.y + offsetY
-  const baseSize = 50 * scale
-  
-  // 光晕
-  ctx.shadowColor = app.primaryColor
-  ctx.shadowBlur = 30
-  
-  if (app.accessories.includes('glow')) {
-    ctx.shadowBlur = 50
-  }
-  
-  // 绘制主体
-  ctx.save()
-  ctx.translate(x, y)
-  ctx.rotate(rotation)
-  
-  // 根据形状绘制
-  const gradient = ctx.createRadialGradient(-10, -10, 5, 0, 0, baseSize)
-  gradient.addColorStop(0, app.primaryColor)
-  gradient.addColorStop(0.6, app.secondaryColor)
-  gradient.addColorStop(1, app.primaryColor + '40')
-  
-  ctx.fillStyle = gradient
-  
-  switch (app.shape) {
-    case 'flame':
-      drawFlame(ctx, baseSize)
-      break
-    case 'droplet':
-      drawDroplet(ctx, baseSize)
-      break
-    case 'cloud':
-      drawCloud(ctx, baseSize)
-      break
-    case 'star':
-      drawStar(ctx, baseSize)
-      break
-    case 'heart':
-      drawHeart(ctx, baseSize)
-      break
-    case 'leaf':
-      drawLeaf(ctx, baseSize)
-      break
-  }
-  
-  // 绘制配饰
-  ctx.shadowBlur = 15
-  drawAccessories(ctx, app.accessories, baseSize)
-  
-  // 绘制脸部
-  ctx.shadowBlur = 0
-  if (app.hasFace) {
-    drawFace(ctx, template, baseSize)
-  }
-  
-  ctx.restore()
-}
-
-// 绘制火苗
-const drawFlame = (ctx, size) => {
-  ctx.beginPath()
-  ctx.moveTo(0, -size * 0.8)
-  ctx.quadraticCurveTo(size * 0.5, -size * 0.3, size * 0.3, size * 0.5)
-  ctx.quadraticCurveTo(0, size * 0.8, 0, size * 0.8)
-  ctx.quadraticCurveTo(0, size * 0.8, -size * 0.3, size * 0.5)
-  ctx.quadraticCurveTo(-size * 0.5, -size * 0.3, 0, -size * 0.8)
-  ctx.fill()
-}
-
-// 绘制水滴
-const drawDroplet = (ctx, size) => {
-  ctx.beginPath()
-  ctx.moveTo(0, -size * 0.8)
-  ctx.quadraticCurveTo(size * 0.5, 0, 0, size * 0.8)
-  ctx.quadraticCurveTo(-size * 0.5, 0, 0, -size * 0.8)
-  ctx.fill()
-}
-
-// 绘制云朵
-const drawCloud = (ctx, size) => {
-  ctx.beginPath()
-  ctx.arc(-size * 0.25, -size * 0.1, size * 0.35, 0, Math.PI * 2)
-  ctx.arc(size * 0.25, -size * 0.15, size * 0.35, 0, Math.PI * 2)
-  ctx.arc(0, size * 0.1, size * 0.4, 0, Math.PI * 2)
-  ctx.fill()
-}
-
-// 绘制星星
-const drawStar = (ctx, size) => {
-  const points = 5
-  const outerRadius = size * 0.7
-  const innerRadius = size * 0.35
-  
-  ctx.beginPath()
-  for (let i = 0; i < points * 2; i++) {
-    const radius = i % 2 === 0 ? outerRadius : innerRadius
-    const angle = (i * Math.PI) / points - Math.PI / 2
-    const x = Math.cos(angle) * radius
-    const y = Math.sin(angle) * radius
-    if (i === 0) ctx.moveTo(x, y)
-    else ctx.lineTo(x, y)
-  }
-  ctx.closePath()
-  ctx.fill()
-}
-
-// 绘制爱心
-const drawHeart = (ctx, size) => {
-  ctx.beginPath()
-  ctx.moveTo(0, size * 0.3)
-  ctx.bezierCurveTo(-size * 0.5, -size * 0.3, -size * 0.7, size * 0.3, 0, size * 0.7)
-  ctx.bezierCurveTo(size * 0.7, size * 0.3, size * 0.5, -size * 0.3, 0, size * 0.3)
-  ctx.fill()
-}
-
-// 绘制叶子
-const drawLeaf = (ctx, size) => {
-  ctx.beginPath()
-  ctx.ellipse(0, 0, size * 0.5, size * 0.7, 0, 0, Math.PI * 2)
-  ctx.fill()
-}
-
-// 绘制配饰
-const drawAccessories = (ctx, accList, size) => {
-  if (accList.includes('sparkle')) {
-    ctx.fillStyle = '#FFD700'
-    for (let i = 0; i < 3; i++) {
-      const angle = time * 2 + i * 2.1
-      const x = Math.cos(angle) * size * 0.9
-      const y = Math.sin(angle) * size * 0.9 - size * 0.3
-      ctx.beginPath()
-      ctx.arc(x, y, size * 0.08, 0, Math.PI * 2)
-      ctx.fill()
-    }
-  }
-  
-  if (accList.includes('zzz')) {
-    ctx.font = `${size * 0.3}px Arial`
-    ctx.fillStyle = '#FFFFFF80'
-    ctx.fillText('💤', size * 0.5, -size * 0.5)
-  }
-  
-  if (accList.includes('sweat')) {
-    ctx.font = `${size * 0.25}px Arial`
-    ctx.fillText('💦', size * 0.4, -size * 0.3)
-  }
-  
-  if (accList.includes('rain')) {
-    ctx.fillStyle = '#87CEEB80'
-    for (let i = 0; i < 5; i++) {
-      const x = -size * 0.4 + i * size * 0.2
-      const y = size * 0.5 + Math.sin(time * 2 + i) * size * 0.1
-      ctx.beginPath()
-      ctx.arc(x, y, size * 0.05, 0, Math.PI * 2)
-      ctx.fill()
-    }
-  }
-  
-  if (accList.includes('crown')) {
-    ctx.font = `${size * 0.4}px Arial`
-    ctx.fillText('👑', -size * 0.2, -size * 0.7)
-  }
-}
-
-// 绘制脸部
-const drawFace = (ctx, template, size) => {
-  const eyeY = -size * 0.1
-  const eyeSpacing = size * 0.2
-  
-  // 眼睛
-  ctx.fillStyle = '#FFFFFF'
-  ctx.beginPath()
-  ctx.arc(-eyeSpacing, eyeY, size * 0.12, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.beginPath()
-  ctx.arc(eyeSpacing, eyeY, size * 0.12, 0, Math.PI * 2)
-  ctx.fill()
-  
-  // 瞳孔
-  ctx.fillStyle = '#2C3E50'
-  ctx.beginPath()
-  ctx.arc(-eyeSpacing - 2, eyeY, size * 0.06, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.beginPath()
-  ctx.arc(eyeSpacing - 2, eyeY, size * 0.06, 0, Math.PI * 2)
-  ctx.fill()
-  
-  // 嘴巴
-  ctx.beginPath()
-  ctx.strokeStyle = '#D32F2F'
-  ctx.lineWidth = size * 0.04
-  ctx.lineCap = 'round'
-  
-  const mouthY = eyeY + size * 0.2
-  if (template.value >= 4) {
-    ctx.arc(0, mouthY, size * 0.15, 0.1, Math.PI - 0.1)
-  } else if (template.value <= 2) {
-    ctx.arc(0, mouthY + size * 0.1, size * 0.12, Math.PI + 0.2, Math.PI * 2 - 0.2)
-  } else {
-    ctx.arc(0, mouthY, size * 0.12, 0.1, Math.PI - 0.1)
-  }
-  ctx.stroke()
-}
-
-// 动画循环（透明背景版）
-const animate = () => {
-  const canvas = canvasRef.value
-  if (!canvas) return
-  
-  time += 0.05
-  
-  const ctx = canvas.getContext('2d')
-  ctx.clearRect(0, 0, canvasWidth.value, canvasHeight.value)
-  
-  // 不绘制背景，保持透明
-  if (currentTemplate.value) {
-    drawSprite(ctx, currentTemplate.value, spritePos.value)
-  }
-  
-  animationId = requestAnimationFrame(animate)
-}
-
-// 预览动画
-let previewAnimationId = null
-const animatePreview = () => {
-  const canvas = previewCanvasRef.value
-  if (!canvas) return
-  
-  const ctx = canvas.getContext('2d')
-  ctx.clearRect(0, 0, 200, 200)
-  
-  const previewPos = { x: 100, y: 100 }
-  drawSprite(ctx, newTemplate.value, previewPos, 0.8)
-  
-  previewAnimationId = requestAnimationFrame(animatePreview)
-}
-
-// 选择模板
-const selectTemplate = (template) => {
-  currentTemplate.value = template
-  spriteStore.setCurrentTemplate(template)
-  showEmotionPicker.value = false
-  ElMessage.success(`已切换到 ${template.name}`)
-}
-
-// 创建新模板
-const createNewTemplate = () => {
-  if (!newTemplate.value.name || !newTemplate.value.emotion) {
-    ElMessage.warning('请填写精灵名称和对应情绪')
-    return
-  }
-  
-  newTemplate.value.color = newTemplate.value.appearance.primaryColor
-  
-  const created = spriteStore.addCustomTemplate({ ...newTemplate.value })
-  currentTemplate.value = created
-  spriteStore.setCurrentTemplate(created)
-  
-  showSpriteLibrary.value = false
-  showEmotionPicker.value = false
-  
-  // 重置表单
-  newTemplate.value = {
-    name: '',
-    emotion: '',
-    emoji: '😊',
-    color: '#FFD93D',
-    value: 3,
-    description: '',
-    animation: { type: 'bounce', speed: 1.0, intensity: 1.0 },
-    appearance: {
-      shape: 'flame',
-      primaryColor: '#FFD93D',
-      secondaryColor: '#FF9F3D',
-      size: 1.0,
-      hasFace: true,
-      accessories: []
-    }
-  }
-  
-  ElMessage.success('新精灵创建成功！')
 }
 
 // 拖拽逻辑
-const handleMouseDown = (e) => {
-  const rect = canvasRef.value.getBoundingClientRect()
-  const mouseX = e.clientX - rect.left
-  const mouseY = e.clientY - rect.top
+const startDrag = (e) => {
+  isDragging.value = true
+  const rect = e.currentTarget.getBoundingClientRect()
+  dragStartX = e.clientX || e.touches[0].clientX
+  dragStartY = e.clientY || e.touches[0].clientY
+  dragStartPos = { ...containerPos.value }
   
-  const dist = Math.sqrt(
-    Math.pow(mouseX - spritePos.value.x, 2) + 
-    Math.pow(mouseY - spritePos.value.y, 2)
-  )
-  
-  if (dist < 70) {
-    isDragging.value = true
-    dragOffset.value = {
-      x: spritePos.value.x - mouseX,
-      y: spritePos.value.y - mouseY
-    }
-  }
+  document.addEventListener('mousemove', onDrag)
+  document.addEventListener('mouseup', endDrag)
+  document.addEventListener('touchmove', onDrag, { passive: false })
+  document.addEventListener('touchend', endDrag)
 }
 
-const handleMouseMove = (e) => {
+const onDrag = (e) => {
   if (!isDragging.value) return
+  e.preventDefault()
   
-  const rect = canvasRef.value.getBoundingClientRect()
-  const mouseX = e.clientX - rect.left
-  const mouseY = e.clientY - rect.top
+  const clientX = e.clientX || e.touches[0].clientX
+  const clientY = e.clientY || e.touches[0].clientY
   
-  spritePos.value = {
-    x: Math.max(60, Math.min(canvasWidth.value - 60, mouseX + dragOffset.value.x)),
-    y: Math.max(60, Math.min(canvasHeight.value - 60, mouseY + dragOffset.value.y))
+  const deltaX = (clientX - dragStartX) / window.innerWidth * 100
+  const deltaY = (clientY - dragStartY) / window.innerHeight * 100
+  
+  // ✅ 添加这一行：计算容器一半尺寸的百分比
+  const halfSize = (containerSize.value / 2) / Math.min(screenWidth.value, screenHeight.value) * 100
+  
+  containerPos.value = {
+    x: Math.max(0, Math.min(100, dragStartPos.x + deltaX)),
+    y: Math.max(halfSize, Math.min(100 - halfSize, dragStartPos.y + deltaY))
   }
 }
 
-const handleMouseUp = () => {
+const endDrag = () => {
   isDragging.value = false
+  document.removeEventListener('mousemove', onDrag)
+  document.removeEventListener('mouseup', endDrag)
+  document.removeEventListener('touchmove', onDrag)
+  document.removeEventListener('touchend', endDrag)
+  saveToLocal()
 }
 
-const handleClick = (e) => {
-  if (isDragging.value) {
-    isDragging.value = false
-    return
+// 本地存储
+const saveToLocal = () => {
+  localStorage.setItem('spiritContainerSize', containerSize.value.toString())
+  localStorage.setItem('spiritContainerPos', JSON.stringify(containerPos.value))
+  localStorage.setItem('spiritCurrent', currentSpirit.value)
+  localStorage.setItem('spiritColor', currentColor.value)
+  localStorage.setItem('spiritFollowMode', followMode.value)
+}
+
+const loadFromLocal = () => {
+  const size = localStorage.getItem('spiritContainerSize')
+  const pos = localStorage.getItem('spiritContainerPos')
+  const spirit = localStorage.getItem('spiritCurrent')
+  const color = localStorage.getItem('spiritColor')
+  const mode = localStorage.getItem('spiritFollowMode')
+  
+  if (size) containerSize.value = parseInt(size)
+  if (pos) containerPos.value = JSON.parse(pos)
+  if (spirit) currentSpirit.value = spirit
+  if (color) currentColor.value = color
+  if (mode) followMode.value = mode
+}
+
+// 后端存储
+const saveToBackend = async () => {
+  try {
+    const config = spiritList.find(s => s.id === currentSpirit.value)
+    await spiritStore.updateSpiritState({
+      spiritType: currentSpirit.value,
+      spiritColor: currentColor.value,
+      followMode: followMode.value,
+      currentTagId: config?.emotionTagId || 2
+    })
+  } catch (error) {
+    console.error('保存精灵状态失败:', error)
   }
-  
-  const rect = canvasRef.value.getBoundingClientRect()
-  const clickX = e.clientX - rect.left
-  const clickY = e.clientY - rect.top
-  
-  showEmotionPicker.value = !showEmotionPicker.value
-  if (showEmotionPicker.value) {
-    pickerPosition.value = {
-      x: Math.max(10, Math.min(canvasWidth.value - 280, clickX - 120)),
-      y: Math.max(10, clickY - 250)
+}
+
+const loadFromBackend = async () => {
+  try {
+    const state = await spiritStore.getSpiritState()
+    if (state) {
+      currentSpirit.value = state.spiritType || 'water'
+      // ✅ 优先使用后端保存的颜色
+      if (state.spiritColor) {
+        currentColor.value = state.spiritColor
+      } else {
+        // 如果后端没有颜色，从 localStorage 恢复
+        const savedColor = localStorage.getItem(`spiritColor_${currentSpirit.value}`)
+        if (savedColor) {
+          currentColor.value = savedColor
+        }
+      }
+      followMode.value = state.followMode || 'container'
+      
+      if (state.currentTagId) {
+        customEmotionId.value = state.currentTagId
+        customEmotionName.value = localStorage.getItem(`customEmotionName_${currentSpirit.value}`) || ''
+        
+        const config = spiritList.find(s => s.id === currentSpirit.value)
+        if (config) {
+          config.emotionTagId = state.currentTagId
+          if (customEmotionName.value) {
+            config.emotion = customEmotionName.value
+          }
+        }
+        
+        localStorage.setItem(`customEmotion_${currentSpirit.value}`, state.currentTagId.toString())
+        if (customEmotionName.value) {
+          localStorage.setItem(`customEmotionName_${currentSpirit.value}`, customEmotionName.value)
+        }
+      }
     }
+  } catch (error) {
+    console.error('加载精灵状态失败:', error)
   }
 }
 
-// 监听模板变化更新预览
-watch(() => newTemplate.value, () => {
-  if (showSpriteLibrary) {
-    cancelAnimationFrame(previewAnimationId)
-    previewAnimationId = requestAnimationFrame(animatePreview)
-  }
-}, { deep: true })
+// 监听变化自动保存
+watch(containerSize, saveToLocal)
+watch(containerPos, saveToLocal, { deep: true })
+watch(currentSpirit, () => { saveToLocal(); saveToBackend() })
+watch(currentColor, () => { saveToLocal(); saveToBackend() })
+watch(followMode, () => { saveToLocal(); saveToBackend() })
 
-onMounted(() => {
-  spriteStore.loadFromLocal()
-  
-  const container = canvasRef.value.parentElement
-  canvasWidth.value = container.clientWidth
-  canvasHeight.value = container.clientHeight
-  spritePos.value = {
-    x: canvasWidth.value / 2,
-    y: canvasHeight.value / 2
+// 窗口大小变化处理
+const handleResize = () => {
+  screenWidth.value = window.innerWidth
+  screenHeight.value = window.innerHeight
+}
+
+let refreshTimer = null
+
+// 监听颜色变化，独立保存
+watch(currentColor, (newColor, oldColor) => {
+  if (newColor !== oldColor && currentSpirit.value) {
+    localStorage.setItem(`spiritColor_${currentSpirit.value}`, newColor)
+    saveToBackend()
   }
-  
-  animate()
 })
 
-onUnmounted(() => {
-  if (animationId) cancelAnimationFrame(animationId)
-  if (previewAnimationId) cancelAnimationFrame(previewAnimationId)
+onMounted(() => {
+  loadFromLocal()
+  fetchEmotionTags()
+  
+  // ✅ 先加载情绪标签，再加载后端状态
+  watch(emotionTags, async (newVal) => {
+    if (newVal.length > 0) {
+      await loadFromBackend()
+    }
+  }, { once: true })
+  
+  window.addEventListener('resize', handleResize)
+  
+  refreshTimer = setInterval(() => {
+    loadFromBackend()
+  }, 30000)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize)
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+  }
 })
 </script>
 
-<style scoped lang="scss">
+<style scoped>
 .emotion-sprite-container {
   width: 100%;
-  height: 100%;
-  background: transparent;
-  border-radius: 20px;
-  overflow: hidden;
+  height: 100vh;
   position: relative;
-  
-  canvas {
-    display: block;
-    width: 100%;
-    height: 100%;
-    cursor: grab;
-    
-    &:active {
-      cursor: grabbing;
-    }
+  overflow: hidden;
+  background: #0b1117;
+}
+
+.center-wrapper {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+  cursor: grab;
+  touch-action: none;
+}
+
+.center-wrapper:active {
+  cursor: grabbing;
+}
+
+.fullscreen-wrapper {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 1;
+}
+
+/* 右下角浮动控制面板 */
+.floating-controls {
+  position: fixed;
+  right: 20px;
+  bottom: 80px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+/* 切换按钮 */
+.toggle-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(10px);
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: scale(1.05);
+}
+
+/* 控制面板内容 */
+.control-panel {
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(20px);
+  border-radius: 16px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  max-width: 500px;
+  min-width: 280px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
   }
-  
-  .sprite-info {
-    position: absolute;
-    bottom: 20px;
-    left: 20px;
-    display: flex;
-    flex-direction: column;
-    color: white;
-    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-    
-    .sprite-name {
-      font-size: 18px;
-      font-weight: 600;
-    }
-    
-    .usage-count {
-      font-size: 12px;
-      opacity: 0.8;
-    }
-  }
-  
-  .emotion-picker {
-    position: absolute;
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(10px);
-    border-radius: 20px;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-    z-index: 100;
-    min-width: 300px;
-    padding: 16px;
-    
-    .picker-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 12px;
-      padding-bottom: 12px;
-      border-bottom: 1px solid #eee;
-      
-      span {
-        font-weight: 600;
-        color: #333;
-      }
-    }
-    
-    .template-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 10px;
-      max-height: 350px;
-      overflow-y: auto;
-      
-      .template-item {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding: 12px 8px;
-        border-radius: 16px;
-        cursor: pointer;
-        transition: all 0.3s;
-        border: 2px solid transparent;
-        background: #f5f7fa;
-        
-        &.active {
-          border-width: 3px;
-          background: #fff;
-          transform: scale(1.02);
-          box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-        }
-        
-        &:hover {
-          background: #fff;
-        }
-        
-        .template-emoji {
-          font-size: 32px;
-          margin-bottom: 4px;
-        }
-        
-        .template-name {
-          font-size: 14px;
-          font-weight: 500;
-          color: #333;
-        }
-        
-        .template-emotion {
-          font-size: 11px;
-          color: #999;
-          margin-top: 2px;
-        }
-      }
-    }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
-// 精灵工坊样式
-.sprite-library {
-  max-height: 60vh;
-  overflow-y: auto;
-  padding: 10px;
-  
-  .step {
-    margin-bottom: 24px;
-    
-    .step-title {
-      font-size: 16px;
-      font-weight: 600;
-      margin-bottom: 12px;
-      color: #333;
-    }
-  }
-  
-  .shape-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
-    
-    .shape-item {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 12px;
-      border-radius: 12px;
-      cursor: pointer;
-      transition: all 0.3s;
-      border: 2px solid transparent;
-      
-      &.active {
-        border-color: #667eea;
-        background: rgba(102, 126, 234, 0.1);
-      }
-      
-      .shape-preview {
-        width: 50px;
-        height: 50px;
-        border-radius: 25px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 24px;
-        margin-bottom: 8px;
-      }
-      
-      span {
-        font-size: 13px;
-      }
-    }
-  }
-  
-  .animation-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
-    
-    .animation-item {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 12px;
-      border-radius: 12px;
-      cursor: pointer;
-      transition: all 0.3s;
-      border: 2px solid transparent;
-      
-      &.active {
-        border-color: #667eea;
-        background: rgba(102, 126, 234, 0.1);
-      }
-      
-      .anim-icon {
-        font-size: 24px;
-        margin-bottom: 6px;
-      }
-      
-      span:last-child {
-        font-size: 13px;
-      }
-    }
-  }
-  
-  .color-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 0;
-  }
-  
-  .accessory-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
-    
-    .accessory-item {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 12px;
-      border-radius: 12px;
-      cursor: pointer;
-      transition: all 0.3s;
-      border: 2px solid transparent;
-      
-      &.active {
-        border-color: #667eea;
-        background: rgba(102, 126, 234, 0.1);
-      }
-      
-      span:first-child {
-        font-size: 24px;
-        margin-bottom: 6px;
-      }
-      
-      span:last-child {
-        font-size: 13px;
-      }
-    }
-  }
-  
-  .value-slider {
-    padding: 10px 0;
-    
-    span {
-      display: block;
-      margin-bottom: 10px;
-    }
-  }
-  
-  .preview-section {
-    margin-top: 20px;
-    padding-top: 20px;
-    border-top: 1px solid #eee;
-    
-    .preview-title {
-      font-size: 16px;
-      font-weight: 600;
-      margin-bottom: 12px;
-    }
-    
-    .preview-canvas-wrapper {
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-      border-radius: 20px;
-      display: flex;
-      justify-content: center;
-      padding: 20px;
-      
-      canvas {
-        width: 150px;
-        height: 150px;
-      }
-    }
+.panel-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.spirit-selector {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.spirit-item {
+  padding: 6px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 48px;
+}
+
+.spirit-item.active {
+  border-color: v-bind(currentColor);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.spirit-item .icon { font-size: 18px; }
+.spirit-item .name { font-size: 10px; color: rgba(255, 255, 255, 0.7); }
+.spirit-item .emotion { font-size: 8px; color: rgba(255, 255, 255, 0.4); }
+
+.controls-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.size-control, .color-control, .follow-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+}
+
+.emotion-custom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  width: 100%;           /* 让父容器占满可用宽度 */
+  flex-wrap: wrap;       /* 小屏幕时自动换行 */
+}
+
+/* 下拉框占满剩余空间 */
+.emotion-custom .el-select {
+  flex: 1;
+  min-width: 120px;      /* 最小宽度 */
+}
+
+@media (max-width: 600px) {
+  .control-panel {
+    max-width: 90vw;
+    min-width: auto;
+    padding: 12px;
   }
 }
 </style>

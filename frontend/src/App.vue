@@ -9,42 +9,45 @@
       <router-link to="/register" class="register-link">注册</router-link>
     </div>
     
-    <!-- 悬浮式可折叠底部导航（仅登录后显示） -->
-    <div v-if="isLoggedIn" class="nav-float" :class="{ expanded: isExpanded }">
-      <!-- 收起状态的按钮 -->
-      <div v-if="!isExpanded" class="nav-toggle-btn" @click="toggleNav">
-        <span class="dot"></span>
-        <span class="dot"></span>
-        <span class="dot"></span>
-      </div>
-      
-      <!-- 展开状态的导航 -->
-      <div v-else class="nav-expanded">
-        <div class="nav-header">
-          <span class="nav-title">导航菜单</span>
-          <button class="close-btn" @click="toggleNav">✕</button>
+    <!-- 右下角导航 + 控制面板组合（仅登录后显示） -->
+    <div v-if="isLoggedIn" class="right-bottom-group">
+      <!-- 导航栏 -->
+      <div class="nav-float" :class="{ expanded: isExpanded }">
+        <!-- 收起状态的按钮 -->
+        <div v-if="!isExpanded" class="nav-toggle-btn" @click="toggleNav">
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
         </div>
-        <div class="nav-items">
-          <router-link to="/" class="nav-item" @click="onNavClick">
-            <span class="nav-icon">✨</span>
-            <span class="nav-label">精灵</span>
-          </router-link>
-          <router-link to="/diary" class="nav-item" @click="onNavClick">
-            <span class="nav-icon">📔</span>
-            <span class="nav-label">日记</span>
-          </router-link>
-          <router-link to="/dashboard" class="nav-item" @click="onNavClick">
-            <span class="nav-icon">📊</span>
-            <span class="nav-label">看板</span>
-          </router-link>
-          <router-link to="/universe" class="nav-item" @click="onNavClick">
-            <span class="nav-icon">🌌</span>
-            <span class="nav-label">宇宙</span>
-          </router-link>
-          <router-link to="/profile" class="nav-item" @click="onNavClick">
-            <span class="nav-icon">👤</span>
-            <span class="nav-label">我的</span>
-          </router-link>
+        
+        <!-- 展开状态的导航 -->
+        <div v-else class="nav-expanded">
+          <div class="nav-header">
+            <span class="nav-title">导航菜单</span>
+            <button class="close-btn" @click="toggleNav">✕</button>
+          </div>
+          <div class="nav-items">
+            <router-link to="/" class="nav-item" @click="onNavClick">
+              <span class="nav-icon">✨</span>
+              <span class="nav-label">精灵</span>
+            </router-link>
+            <router-link to="/diary" class="nav-item" @click="onNavClick">
+              <span class="nav-icon">📔</span>
+              <span class="nav-label">日记</span>
+            </router-link>
+            <router-link to="/dashboard" class="nav-item" @click="onNavClick">
+              <span class="nav-icon">📊</span>
+              <span class="nav-label">看板</span>
+            </router-link>
+            <router-link to="/universe" class="nav-item" @click="onNavClick">
+              <span class="nav-icon">🌌</span>
+              <span class="nav-label">宇宙</span>
+            </router-link>
+            <router-link to="/profile" class="nav-item" @click="onNavClick">
+              <span class="nav-icon">👤</span>
+              <span class="nav-label">我的</span>
+            </router-link>
+          </div>
         </div>
       </div>
     </div>
@@ -59,7 +62,7 @@ const userStore = useUserStore()
 
 const isExpanded = ref(false)
 
-// ✅ 修改：使用 userStore 的 isLoggedIn，而不是直接检查 localStorage
+// 登录状态
 const isLoggedIn = computed(() => userStore.isLoggedIn)
 
 // 从本地存储读取导航状态
@@ -69,7 +72,6 @@ onMounted(() => {
     isExpanded.value = saved === 'true'
   }
   
-  // ✅ 修改：调用 userStore.init() 自动恢复登录状态
   userStore.init()
 })
 
@@ -134,12 +136,21 @@ html, body {
   }
 }
 
+// 右下角组合
+.right-bottom-group {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+}
+
 // 悬浮式导航
 .nav-float {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  z-index: 1000;
+  position: relative;
   
   .nav-toggle-btn {
     width: 56px;
@@ -276,25 +287,28 @@ html, body {
 
 // 移动端适配
 @media (max-width: 768px) {
+  .right-bottom-group {
+    right: 16px;
+    bottom: 16px;
+    gap: 10px;
+  }
+  
   .nav-float {
-    bottom: 20px;
-    right: 20px;
-    
     .nav-expanded {
-      padding: 14px 16px;
+      padding: 12px 14px;
       
       .nav-items {
-        gap: 8px;
+        gap: 6px;
         
         .nav-item {
-          padding: 8px 10px;
+          padding: 6px 8px;
           
           .nav-icon {
-            font-size: 22px;
+            font-size: 20px;
           }
           
           .nav-label {
-            font-size: 10px;
+            font-size: 9px;
           }
         }
       }
